@@ -1,36 +1,106 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 from contextlib import contextmanager
-import sqlite3
+from typing import TYPE_CHECKING
 
-from banyan_platform.config import DatabaseConfig
+if TYPE_CHECKING:
+    from banyan_platform.config import DatabaseConfig
 
 
-class Database:
-    def __init__(self, config: DatabaseConfig):
-        self.config = config
-        self._sqlite_connection: sqlite3.Connection | None = None
+class Database(ABC):
+    """
+    Abstract connection provider.
+
+    Concrete implementations expose a ``connect()`` context manager that yields
+    an open connection wrapped in an explicit transaction.  Callers commit on
+    success; any unhandled exception triggers a rollback.
+
+    ``placeholder`` is the SQL parameter substitution character used by this
+    backend ('?' for DuckDB, '%s' for psycopg/PostgreSQL).  DAOs must use it
+    when building parameterised queries.
+    """
+
+    placeholder: str
+
+    @contextmanager
+    @abstractmethod
+    def connect(self):
+        """Yield a transactional connection for this backend."""
+        ...
+
+
+class DuckDBDatabase(Database):
+    """Local / dev backend.  A single DuckDB connection is reused per instance."""
+
+    placeholder = "?"
+
+    def __init__(self, config: DatabaseConfig) -> None:
+        self._path = config.duckdb_path
+        self._conn = None
+
+    def _get_conn(self):
+        if self._conn is None:
+            try:
+                import duckdb  # noqa: PLC0415
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Install duckdb (pip install duckdb) to use the duckdb backend."
+                ) from exc
+            self._conn = duckdb.connect(self._path)
+        return self._conn
 
     @contextmanager
     def connect(self):
-        should_close = True
-        if self.config.dialect == "postgres":
+        conn = self._get_conn()
+        # Guard: if a prior transaction was abandoned without rollback (e.g. during
+        # tests), begin() will raise.  Recover by rolling back the stale transaction.
+        try:
+            conn.begin()
+        except Exception:
             try:
-                import psycopg
-            except ImportError as exc:
-                raise RuntimeError("Install psycopg to use postgres backend") from exc
-            conn = psycopg.connect(self.config.postgres_dsn)
-        else:
-            if self.config.sqlite_path == ":memory:":
-                if self._sqlite_connection is None:
-                    self._sqlite_connection = sqlite3.connect(self.config.sqlite_path, check_same_thread=False)
-                    self._sqlite_connection.row_factory = sqlite3.Row
-                conn = self._sqlite_connection
-                should_close = False
-            else:
-                conn = sqlite3.connect(self.config.sqlite_path, check_same_thread=False)
-                conn.row_factory = sqlite3.Row
+                conn.rollback()
+            except Exception:
+                pass
+            conn.begin()
         try:
             yield conn
             conn.commit()
-        finally:
-            if should_close:
-                conn.close()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+
+
+class PostgresDatabase(Database):
+    """Production backend via psycopg 3."""
+
+    placeholder = "%s"
+
+    def __init__(self, config: DatabaseConfig) -> None:
+        self._dsn = config.postgres_dsn
+
+    @contextmanager
+    def connect(self):
+        try:
+            import psycopg  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError(
+                "Install psycopg (pip install psycopg) to use the postgres backend."
+            ) from exc
+        with psycopg.connect(self._dsn) as conn:
+            yield conn
+
+
+def create_database(config: DatabaseConfig) -> Database:
+    """Factory: return the correct Database implementation for *config.dialect*."""
+    if config.dialect == "duckdb":
+        return DuckDBDatabase(config)
+    if config.dialect == "postgres":
+        return PostgresDatabase(config)
+    raise ValueError(
+        f"Unsupported BANYAN_DB_DIALECT: '{config.dialect}'. "
+        "Valid values are 'duckdb' and 'postgres'."
+    )

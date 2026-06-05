@@ -4,9 +4,11 @@ import os
 
 @dataclass(frozen=True)
 class DatabaseConfig:
-    dialect: str = os.getenv("BANYAN_DB_DIALECT", "sqlite")
-    sqlite_path: str = os.getenv("BANYAN_SQLITE_PATH", ":memory:")
+    # 'duckdb' for local/dev; 'postgres' for production
+    dialect: str = os.getenv("BANYAN_DB_DIALECT", "duckdb")
+    # DuckDB file path. ':memory:' for in-process testing.
+    duckdb_path: str = os.getenv("BANYAN_DUCKDB_PATH", ":memory:")
     postgres_dsn: str = os.getenv(
         "BANYAN_POSTGRES_DSN",
-        "postgresql://postgres:postgres@postgres:5432/banyan",
+        "postgresql://postgres:postgres@localhost:5432/banyan",
     )
