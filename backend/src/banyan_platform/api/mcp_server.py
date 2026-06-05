@@ -299,11 +299,12 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         graph_id: str,
         version_label: str,
         actor_id: str = _MCP_DEFAULT_ACTOR,
-        metadata: dict | None = None,
     ) -> dict:
         """
-        Pin the current ledger position as a named snapshot (checkpoint).
+        Pin the current graph state as a named, fully-serialized snapshot.
 
+        Stores the complete export payload (graph + nodes + links) so the snapshot
+        can be used as a Diff base without ledger replay.
         version_label should be a human-readable milestone label,
         e.g. 'v1.4-production' or 'pre-merge-review'.
         Raises if the graph has no mutation history yet.
@@ -312,7 +313,6 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
             graph_id=graph_id,
             version_label=version_label,
             actor_id=actor_id,
-            metadata=metadata,
         )
 
     @mcp.tool
@@ -352,5 +352,124 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         only changes made after that snapshot — useful for computing diffs.
         """
         return service.get_graph_history(graph_id, since_ledger_id)
+
+    # ── Export / Import / Diff / Batch tools ───────────────────────────────
+
+    @mcp.tool
+    def export_graph(
+        graph_id: str,
+        include_cross_graph_links: bool = False,
+    ) -> dict:
+        """
+        Serialize the full graph state as a portable document.
+
+        Returns:
+            {
+              "banyan_export_version": "1.0",
+              "exported_at": "<ISO-8601>",
+              "graph": { ... },
+              "nodes": [ ... ],
+              "links": [ ... ],
+              "cross_graph_links": [ ... ]   # only if include_cross_graph_links=True
+            }
+
+        Use this document for import_graph, diff_graphs, or as an archive.
+        """
+        return service.export_graph(graph_id, include_cross_graph_links)
+
+    @mcp.tool
+    def import_graph(
+        export_doc: dict,
+        actor_id: str = _MCP_DEFAULT_ACTOR,
+        new_name: str | None = None,
+        merge_into_graph_id: str | None = None,
+    ) -> dict:
+        """
+        Import an export document into a new graph or merge into an existing one.
+
+        New graph mode (merge_into_graph_id omitted):
+          Creates a new graph using new_name (or the original graph name).
+          Imports all nodes and intra-graph links. Duplicate source_ids are skipped.
+
+        Merge mode (merge_into_graph_id provided):
+          Adds only nodes/links that do not already exist in the target graph.
+
+        Returns the target graph dict.
+        """
+        return service.import_graph(
+            export_doc=export_doc,
+            actor_id=actor_id,
+            new_name=new_name,
+            merge_into_graph_id=merge_into_graph_id,
+        )
+
+    @mcp.tool
+    def diff_graphs(
+        base: str | dict,
+        compare: str | dict,
+        include_cross_graph_links: bool = False,
+    ) -> dict:
+        """
+        Compare two graph states and return a structured delta.
+
+        Each argument may be:
+          - A graph_id string (live graph exported on-the-fly)
+          - A snapshot reference: "snapshot:<snapshot_id>"
+          - A pre-built export document dict
+
+        Returns:
+            {
+              "nodes_added":   [...],   # in compare, not in base (by source_id)
+              "nodes_removed": [...],   # in base, not in compare
+              "nodes_changed": [...],   # same source_id, different content
+              "links_added":   [...],
+              "links_removed": [...]
+            }
+        """
+        return service.diff_graphs(
+            base=base,
+            compare=compare,
+            include_cross_graph_links=include_cross_graph_links,
+        )
+
+    @mcp.tool
+    def execute_batch(
+        graph_id: str,
+        node_operations: list[dict],
+        link_operations: list[dict],
+        actor_id: str = _MCP_DEFAULT_ACTOR,
+        default_link_type_id: int | None = None,
+    ) -> dict:
+        """
+        Execute a batch of node and link operations atomically.
+
+        All operations run in a single transaction — any failure rolls back everything.
+        The engine determines correct execution order (4-phase):
+          1. ADD_NODE / UPDATE_NODE
+          2. CREATE_LINK / UPDATE_LINK
+          3. DESTROY_LINK
+          4. DELETE_NODE
+
+        node_operations items:
+          { "verb": "ADD_NODE",    "data": { "source_id": "...", "name": "..." } }
+          { "verb": "UPDATE_NODE", "data": { "node_id": "...", "name": "..." } }
+          { "verb": "DELETE_NODE", "data": { "node_id": "...", "force": false } }
+
+        link_operations items:
+          { "verb": "CREATE_LINK",  "data": { "from_node_id": "...", "to_node_id": "...", "link_type_id": 1 } }
+          { "verb": "UPDATE_LINK",  "data": { "link_id": "...", "link_order": 2.0 } }
+          { "verb": "DESTROY_LINK", "data": { "link_id": "..." } }
+
+        Returns operation counters: nodes_added, nodes_updated, nodes_deleted,
+        links_created, links_updated, links_destroyed, ledger_entries.
+        """
+        batch = {
+            "graph_id": graph_id,
+            "actor_id": actor_id,
+            "default_link_type_id": default_link_type_id,
+            "node_operations": node_operations,
+            "link_operations": link_operations,
+        }
+        return service.execute_batch(batch, actor_id=actor_id)
 
     return mcp

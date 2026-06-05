@@ -89,6 +89,7 @@ class NodeDAO:
         notes: str | None = None,
         source_id: str | None = None,
         metadata: dict | None = None,
+        node_type_id: int | None = None,
         actor_id: str | None = None,
     ) -> None:
         fields, values = [], []
@@ -101,6 +102,8 @@ class NodeDAO:
             fields.append(f"source_id = {p}"); values.append(source_id)
         if metadata is not None:
             fields.append(f"metadata = {p}"); values.append(json.dumps(metadata))
+        if node_type_id is not None:
+            fields.append(f"node_type_id = {p}"); values.append(node_type_id)
         if not fields:
             return
         fields.append("updated_datetime = CURRENT_TIMESTAMP")

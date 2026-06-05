@@ -104,7 +104,6 @@ class LinkResponse(BaseModel):
 
 class SnapshotCreate(BaseModel):
     version_label: str
-    metadata: dict = {}
 
 class SnapshotResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -113,8 +112,36 @@ class SnapshotResponse(BaseModel):
     version_label: str
     ledger_id: int
     actor_id: str
-    snapshot_metadata: dict = {}
+    snapshot_payload: dict = {}
     inserted_datetime: Any = None
+
+
+class ImportRequest(BaseModel):
+    export_doc: dict
+    new_name: str | None = None
+    merge_into_graph_id: str | None = None
+
+
+class DiffRequest(BaseModel):
+    base: str | dict   # graph_id, "snapshot:<id>", or export doc
+    compare: str | dict
+    include_cross_graph_links: bool = False
+
+
+class BatchNodeOperation(BaseModel):
+    verb: str   # ADD_NODE | UPDATE_NODE | DELETE_NODE
+    data: dict
+
+class BatchLinkOperation(BaseModel):
+    verb: str   # CREATE_LINK | UPDATE_LINK | DESTROY_LINK
+    data: dict
+
+class BatchRequest(BaseModel):
+    graph_id: str
+    actor_id: str | None = None
+    default_link_type_id: int | None = None
+    node_operations: list[BatchNodeOperation] = []
+    link_operations: list[BatchLinkOperation] = []
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +348,6 @@ def build_rest_router(service: BanyanService) -> APIRouter:
             return service.create_snapshot(
                 graph_id=graph_id,
                 version_label=payload.version_label,
-                metadata=payload.metadata,
                 actor_id=actor_id,
             )
         except (KeyError, ValueError) as exc:
@@ -349,5 +375,54 @@ def build_rest_router(service: BanyanService) -> APIRouter:
         since_ledger_id: int | None = None,
     ):
         return service.get_graph_history(graph_id, since_ledger_id)
+
+    # -- Export / Import / Diff / Batch ----------------------------------------
+
+    @router.get("/graphs/{graph_id}/export")
+    def export_graph(
+        graph_id: str,
+        include_cross_graph_links: bool = False,
+    ):
+        try:
+            return service.export_graph(graph_id, include_cross_graph_links)
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.post("/graphs/import", response_model=GraphResponse, status_code=201)
+    def import_graph(
+        body: ImportRequest,
+        actor_id: str = Depends(get_actor),
+    ):
+        try:
+            return service.import_graph(
+                export_doc=body.export_doc,
+                actor_id=actor_id,
+                new_name=body.new_name,
+                merge_into_graph_id=body.merge_into_graph_id,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @router.post("/graphs/diff")
+    def diff_graphs(body: DiffRequest):
+        try:
+            return service.diff_graphs(
+                base=body.base,
+                compare=body.compare,
+                include_cross_graph_links=body.include_cross_graph_links,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @router.post("/graphs/batch")
+    def execute_batch(
+        body: BatchRequest,
+        actor_id: str = Depends(get_actor),
+    ):
+        batch_dict = body.model_dump()
+        try:
+            return service.execute_batch(batch_dict, actor_id=actor_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     return router
