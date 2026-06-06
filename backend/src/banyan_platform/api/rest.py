@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -78,11 +79,15 @@ class LinkCreate(BaseModel):
     to_node_id: str
     link_order: float = 0.0
     metadata: dict = {}
+    valid_from_datetime: datetime | None = None
+    valid_until_datetime: datetime | None = None
 
 class LinkUpdate(BaseModel):
     link_order: float | None = None
     metadata: dict | None = None
     is_disabled: bool | None = None
+    valid_from_datetime: datetime | None = None
+    valid_until_datetime: datetime | None = None
 
 class LinkResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -279,6 +284,8 @@ def build_rest_router(service: BanyanService) -> APIRouter:
                 to_node_id=payload.to_node_id,
                 link_order=payload.link_order,
                 metadata=payload.metadata,
+                valid_from_datetime=payload.valid_from_datetime,
+                valid_until_datetime=payload.valid_until_datetime,
                 actor_id=actor_id,
             )
         except ValueError as exc:
@@ -303,6 +310,8 @@ def build_rest_router(service: BanyanService) -> APIRouter:
                 link_order=payload.link_order,
                 metadata=payload.metadata,
                 is_disabled=payload.is_disabled,
+                valid_from_datetime=payload.valid_from_datetime,
+                valid_until_datetime=payload.valid_until_datetime,
             )
         except KeyError as exc:
             raise _not_found(exc)

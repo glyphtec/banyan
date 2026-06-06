@@ -1,4 +1,7 @@
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()  # loads backend/.env when present; no-op if missing
 
 from banyan_platform.app import create_app
 
