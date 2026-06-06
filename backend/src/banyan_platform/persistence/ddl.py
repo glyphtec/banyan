@@ -73,7 +73,12 @@ CREATE TABLE IF NOT EXISTS graph (
 
 CREATE TABLE IF NOT EXISTS node (
     node_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    graph_id          UUID NOT NULL REFERENCES graph(graph_id),
+    -- NOTE: graph_id carries no FK constraint.
+    -- DuckDB fires FK violations on UPDATE of the referenced table even when
+    -- the PK column is unchanged (known DuckDB limitation — same category as
+    -- from_node_id / to_node_id on the link table).
+    -- Referential integrity is enforced in the service layer.
+    graph_id          UUID NOT NULL,
     node_type_id      INTEGER NOT NULL REFERENCES node_type(node_type_id),
     source_id         VARCHAR(200) NOT NULL,     -- External business key / SKU / code
     name              VARCHAR(200) NOT NULL,
@@ -90,8 +95,11 @@ CREATE INDEX IF NOT EXISTS idx_node_graph ON node(graph_id);
 CREATE TABLE IF NOT EXISTS link (
     link_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     link_type_id         INTEGER NOT NULL REFERENCES link_type(link_type_id),
-    from_graph_id        UUID NOT NULL REFERENCES graph(graph_id),
-    to_graph_id          UUID NOT NULL REFERENCES graph(graph_id),
+    -- NOTE: from_graph_id / to_graph_id carry no FK constraints.
+    -- DuckDB fires FK violations on UPDATE of the referenced table even when
+    -- the PK column is unchanged.  Service layer enforces graph existence.
+    from_graph_id        UUID NOT NULL,
+    to_graph_id          UUID NOT NULL,
     -- NOTE: from_node_id / to_node_id intentionally carry no FK constraints.
     -- DuckDB does not honour intra-transaction FK visibility (known limitation),
     -- which would block deleting a node after its links are deleted in the same

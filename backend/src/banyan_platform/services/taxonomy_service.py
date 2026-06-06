@@ -60,6 +60,8 @@ class BanyanService:
 
     # ── Graph operations (no ledger) ──────────────────────────────────────────
 
+    _ROOT_SOURCE_ID = "$ROOT$"
+
     def create_graph(
         self,
         name: str,
@@ -67,10 +69,40 @@ class BanyanService:
         notes: str | None = None,
         topology_id: int | None = None,
     ) -> dict:
+        """
+        Create a graph and atomically bootstrap its mandatory root node.
+
+        Every graph is born with a single ``$ROOT$`` node whose ``source_id``
+        and ``name`` are both ``"$ROOT$"``.  The graph's ``root_node_id`` is
+        set in the same transaction.  An ADD_NODE ledger entry is written so
+        the graph immediately has auditable history.
+        """
+        txn_id = str(uuid.uuid4())
         with self.db.connect() as conn:
             graph_id = self.graphs.insert(
                 conn, name=name, notes=notes,
                 topology_id=topology_id, actor_id=actor_id,
+            )
+            resolved_type_id = self._resolve_node_type_id(conn, None)
+            root_node_id = self.nodes.insert(
+                conn,
+                graph_id=graph_id,
+                node_type_id=resolved_type_id,
+                source_id=self._ROOT_SOURCE_ID,
+                name=self._ROOT_SOURCE_ID,
+                actor_id=actor_id,
+            )
+            self.graphs.set_root_node(conn, graph_id, root_node_id)
+            root_node = self.nodes.get(conn, root_node_id)
+            self.ledger.append(
+                conn,
+                transaction_id=txn_id,
+                actor_id=actor_id,
+                primitive_verb="ADD_NODE",
+                source_graph_id=graph_id,
+                entity_id=root_node_id,
+                payload=root_node,
+                reversal_payload={"node_id": root_node_id},
             )
             return self.graphs.get(conn, graph_id)
 

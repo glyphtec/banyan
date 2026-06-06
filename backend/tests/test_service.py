@@ -25,8 +25,8 @@ def test_list_graphs(service):
 
 
 def test_delete_graph_requires_empty(service):
+    # graph is pre-populated with $ROOT$ by create_graph; delete should be blocked
     g = service.create_graph("ToDelete", actor_id=ACTOR)
-    service.add_node(g["graph_id"], "N1", "Node 1", actor_id=ACTOR)
     with pytest.raises(ValueError, match="node"):
         service.delete_graph(g["graph_id"], actor_id=ACTOR)
 
@@ -37,9 +37,10 @@ def test_add_node_writes_ledger_entry(service):
     g = service.create_graph("Taxonomy", actor_id=ACTOR)
     node = service.add_node(g["graph_id"], "T-001", "Term One", actor_id=ACTOR)
     history = service.get_graph_history(g["graph_id"])
-    assert len(history) == 1
-    assert history[0]["primitive_verb"] == "ADD_NODE"
-    assert history[0]["entity_id"] == node["node_id"]
+    # history[0] is the auto-root ADD_NODE; history[1] is T-001
+    entry = next(e for e in history if e["entity_id"] == node["node_id"])
+    assert entry["primitive_verb"] == "ADD_NODE"
+    assert entry["entity_id"] == node["node_id"]
 
 
 def test_update_node_writes_delta_to_ledger(service):
@@ -148,9 +149,11 @@ def test_destroy_link_writes_ledger_entry(service):
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
 def test_snapshot_requires_ledger_history(service):
-    g = service.create_graph("Empty", actor_id=ACTOR)
-    with pytest.raises(ValueError, match="ledger history"):
-        service.create_snapshot(g["graph_id"], "v0", actor_id=ACTOR)
+    # create_graph always writes a $ROOT$ ADD_NODE ledger entry,
+    # so a freshly-created graph already has history and can be snapshotted.
+    g = service.create_graph("HasHistory", actor_id=ACTOR)
+    snap = service.create_snapshot(g["graph_id"], "v0", actor_id=ACTOR)
+    assert snap["version_label"] == "v0"
 
 
 def test_snapshot_created_after_node_mutation(service):

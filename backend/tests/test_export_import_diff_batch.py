@@ -41,7 +41,7 @@ def test_export_structure(service):
     assert doc["banyan_export_version"] == "1.0"
     assert "exported_at" in doc
     assert doc["graph"]["graph_id"] == g["graph_id"]
-    assert len(doc["nodes"]) == 2
+    assert len(doc["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01
     assert len(doc["links"]) == 1
     assert doc["cross_graph_links"] == []
 
@@ -86,9 +86,9 @@ def test_import_creates_new_graph(service):
     assert imported["name"] == "Imported Copy"
 
     nodes = service.list_nodes(imported["graph_id"])
-    assert len(nodes) == 2
+    assert len(nodes) == 3   # $ROOT$ + PARENT-01 + CHILD-01
     source_ids = {n["source_id"] for n in nodes}
-    assert source_ids == {"PARENT-01", "CHILD-01"}
+    assert source_ids == {"$ROOT$", "PARENT-01", "CHILD-01"}
 
 
 def test_import_preserves_links(service):
@@ -113,7 +113,7 @@ def test_import_skips_duplicate_source_ids(service):
     service.import_graph(doc, actor_id=ACTOR, merge_into_graph_id=imported["graph_id"])
 
     nodes = service.list_nodes(imported["graph_id"])
-    assert len(nodes) == 2  # not 4
+    assert len(nodes) == 3  # not 6: $ROOT$ + PARENT-01 + CHILD-01; $ROOT$ deduped on second import
 
 
 def test_import_merge_mode(service):
@@ -123,7 +123,7 @@ def test_import_merge_mode(service):
 
     service.import_graph(doc, actor_id=ACTOR, merge_into_graph_id=target["graph_id"])
     nodes = service.list_nodes(target["graph_id"])
-    assert len(nodes) == 2
+    assert len(nodes) == 3  # $ROOT$ (deduped) + PARENT-01 + CHILD-01
 
 
 # ---------------------------------------------------------------------------
@@ -137,14 +137,17 @@ def test_snapshot_stores_payload(service):
     assert snap["snapshot_id"]
     payload = snap["snapshot_payload"]
     assert payload.get("banyan_export_version") == "1.0"
-    assert len(payload["nodes"]) == 2
+    assert len(payload["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01
     assert len(payload["links"]) == 1
 
 
-def test_snapshot_no_history_raises(service):
-    g = service.create_graph("Empty", actor_id=ACTOR)
-    with pytest.raises(ValueError, match="ledger"):
-        service.create_snapshot(g["graph_id"], "v0", actor_id=ACTOR)
+def test_create_graph_has_root_node(service):
+    """create_graph must bootstrap a $ROOT$ node and backfill root_node_id."""
+    g = service.create_graph("RootTest", actor_id=ACTOR)
+    assert g["root_node_id"] is not None
+    root = service.get_node(g["root_node_id"])
+    assert root["source_id"] == "$ROOT$"
+    assert root["name"] == "$ROOT$"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +252,7 @@ def test_batch_add_nodes_and_links(service):
     assert result["nodes_added"] == 2
     assert result["links_created"] == 0
     assert result["ledger_entries"] == 2
-    assert len(service.list_nodes(gid)) == 2
+    assert len(service.list_nodes(gid)) == 3  # $ROOT$ + Alpha + Beta
 
 
 def test_batch_add_nodes_and_create_link_in_one_batch(service):
@@ -307,8 +310,9 @@ def test_batch_rollback_on_error(service):
             "link_operations": [],
         }, actor_id=ACTOR)
 
-    # Nothing should have been committed
-    assert service.list_nodes(gid) == []
+    # $ROOT$ survives (created by create_graph, not part of the rolled-back batch)
+    non_root = [n for n in service.list_nodes(gid) if n["source_id"] != "$ROOT$"]
+    assert non_root == []
 
 
 def test_batch_update_node(service):
@@ -344,7 +348,7 @@ def test_rest_export(client):
     assert r2.status_code == 200
     doc = r2.json()
     assert doc["banyan_export_version"] == "1.0"
-    assert len(doc["nodes"]) == 1
+    assert len(doc["nodes"]) == 2  # $ROOT$ + N1
 
 
 def test_rest_import(client):

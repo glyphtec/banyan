@@ -139,7 +139,7 @@ def test_mcp_list_nodes(mcp_server):
     _call(mcp_server.call_tool("add_node", {"graph_id": graph_id, "source_id": "BETA-01", "name": "Beta", "actor_id": ACTOR}))
 
     nodes = _data(_call(mcp_server.call_tool("list_nodes", {"graph_id": graph_id})))
-    assert len(nodes) == 2
+    assert len(nodes) == 3  # $ROOT$ + Alpha + Beta
 
 
 # ---------------------------------------------------------------------------
