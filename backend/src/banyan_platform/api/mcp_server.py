@@ -170,6 +170,8 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         actor_id: str = _MCP_DEFAULT_ACTOR,
         link_order: float = 0.0,
         metadata: dict | None = None,
+        valid_from_datetime: str | None = None,
+        valid_until_datetime: str | None = None,
     ) -> dict:
         """
         Create a directional link between two nodes.
@@ -179,7 +181,12 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
 
         link_order controls sibling ordering (fractional, e.g. 1.0, 2.0, 1.5).
         Use get_link_types to discover available link_type_id values.
+
+        valid_from_datetime / valid_until_datetime: optional ISO-8601 strings
+        (e.g. '2026-01-01T00:00:00Z') bounding when the link is considered active.
         """
+        from datetime import datetime, timezone
+        def _parse_dt(s): return datetime.fromisoformat(s) if s else None
         return service.create_link(
             link_type_id=link_type_id,
             from_graph_id=from_graph_id,
@@ -189,6 +196,8 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
             actor_id=actor_id,
             link_order=link_order,
             metadata=metadata,
+            valid_from_datetime=_parse_dt(valid_from_datetime),
+            valid_until_datetime=_parse_dt(valid_until_datetime),
         )
 
     @mcp.tool
@@ -203,16 +212,24 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         link_order: float | None = None,
         metadata: dict | None = None,
         is_disabled: bool | None = None,
+        valid_from_datetime: str | None = None,
+        valid_until_datetime: str | None = None,
     ) -> dict:
         """
-        Update a link's order, metadata, or disabled status.
+        Update a link's order, metadata, disabled status, or temporal bounds.
         Setting is_disabled=True soft-hides the link without deleting it.
+        valid_from_datetime / valid_until_datetime: ISO-8601 strings
+        (e.g. '2026-01-01T00:00:00Z').  Pass an empty string to clear.
         """
+        from datetime import datetime
+        def _parse_dt(s): return datetime.fromisoformat(s) if s else None
         return service.update_link(
             link_id, actor_id=actor_id,
             link_order=link_order,
             metadata=metadata,
             is_disabled=is_disabled,
+            valid_from_datetime=_parse_dt(valid_from_datetime),
+            valid_until_datetime=_parse_dt(valid_until_datetime),
         )
 
     @mcp.tool

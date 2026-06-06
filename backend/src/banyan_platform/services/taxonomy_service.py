@@ -283,6 +283,8 @@ class BanyanService:
         actor_id: str,
         link_order: float = 0.0,
         metadata: dict | None = None,
+        valid_from_datetime: datetime | None = None,
+        valid_until_datetime: datetime | None = None,
     ) -> dict:
         txn_id = str(uuid.uuid4())
         with self.db.connect() as conn:
@@ -301,6 +303,8 @@ class BanyanService:
                 to_node_id=to_node_id,
                 link_order=link_order,
                 metadata=metadata,
+                valid_from_datetime=valid_from_datetime,
+                valid_until_datetime=valid_until_datetime,
                 actor_id=actor_id,
             )
             link = self.links.get(conn, link_id)
@@ -332,6 +336,8 @@ class BanyanService:
         link_order: float | None = None,
         metadata: dict | None = None,
         is_disabled: bool | None = None,
+        valid_from_datetime: datetime | None = None,
+        valid_until_datetime: datetime | None = None,
     ) -> dict:
         txn_id = str(uuid.uuid4())
         with self.db.connect() as conn:
@@ -339,9 +345,11 @@ class BanyanService:
             if prior is None:
                 raise KeyError(f"Link '{link_id}' not found.")
             delta: dict = {}
-            if link_order is not None:  delta["link_order"] = link_order
-            if metadata is not None:    delta["metadata"] = metadata
-            if is_disabled is not None: delta["is_disabled"] = is_disabled
+            if link_order is not None:          delta["link_order"] = link_order
+            if metadata is not None:            delta["metadata"] = metadata
+            if is_disabled is not None:         delta["is_disabled"] = is_disabled
+            if valid_from_datetime is not None: delta["valid_from_datetime"] = valid_from_datetime
+            if valid_until_datetime is not None: delta["valid_until_datetime"] = valid_until_datetime
             if not delta:
                 return prior
             self.links.update(conn, link_id, **delta, actor_id=actor_id)
