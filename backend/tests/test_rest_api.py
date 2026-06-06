@@ -56,7 +56,8 @@ def test_list_nodes(client):
     client.post(f"/api/v1/graphs/{gid}/nodes",
                 json={"source_id": "N2", "name": "N2"}, headers=HEADERS)
     r = client.get(f"/api/v1/graphs/{gid}/nodes")
-    assert len(r.json()) == 2
+    # $ROOT$ is auto-created by create_graph, so 3 total
+    assert len(r.json()) == 3
 
 
 def test_update_node(client):
@@ -135,10 +136,12 @@ def test_get_node_types(client):
 def test_graph_history_after_mutations(client):
     g = client.post("/api/v1/graphs", json={"name": "G"}, headers=HEADERS).json()
     gid = g["graph_id"]
-    client.post(f"/api/v1/graphs/{gid}/nodes",
-                json={"source_id": "N1", "name": "N1"}, headers=HEADERS)
+    n = client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "N1", "name": "N1"}, headers=HEADERS).json()
     r = client.get(f"/api/v1/graphs/{gid}/history")
     assert r.status_code == 200
-    assert len(r.json()) == 1
-    assert r.json()[0]["primitive_verb"] == "ADD_NODE"
+    # history[0] = $ROOT$ ADD_NODE; history[1] = N1 ADD_NODE
+    assert len(r.json()) >= 2
+    entry = next(e for e in r.json() if e["entity_id"] == n["node_id"])
+    assert entry["primitive_verb"] == "ADD_NODE"
 
