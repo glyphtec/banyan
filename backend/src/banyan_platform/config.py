@@ -12,3 +12,6 @@ class DatabaseConfig:
         "BANYAN_POSTGRES_DSN",
         "postgresql://postgres:postgres@localhost:5432/banyan",
     )
+    # Admin API: exposes GET /admin/query for ad-hoc SQL.
+    # NEVER enable in production. Set BANYAN_ADMIN_API=true in .env for local dev.
+    enable_admin_api: bool = os.getenv("BANYAN_ADMIN_API", "false").lower() == "true"
