@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from banyan_platform.api.admin import build_admin_router
 from banyan_platform.api.mcp_server import build_mcp_server
 from banyan_platform.api.rest import build_rest_router
 from banyan_platform.config import DatabaseConfig
@@ -26,6 +27,10 @@ def create_app(config: DatabaseConfig | None = None) -> FastAPI:
         lifespan=mcp_app.lifespan,
     )
     app.include_router(build_rest_router(service))
+
+    # Admin query backdoor — dev only, gated by config flag.
+    if config.enable_admin_api:
+        app.include_router(build_admin_router(db))
 
     # MCP endpoint: /mcp/
     app.mount("/mcp", mcp_app)
