@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import Response
 
 from banyan_platform.persistence.connection import Database
 
@@ -39,6 +39,12 @@ def build_admin_router(db: Database) -> APIRouter:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        return JSONResponse(content=result.to_dict(orient="records"))
+        # Use pandas to_json() with default_handler=str so that UUID objects,
+        # timestamps and any other non-primitive DuckDB types are safely coerced
+        # to strings rather than causing ujson byte-level decode errors.
+        return Response(
+            content=result.to_json(orient="records", date_format="iso", default_handler=str),
+            media_type="application/json",
+        )
 
     return router
