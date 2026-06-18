@@ -30,7 +30,7 @@ def create_app(config: DatabaseConfig | None = None) -> FastAPI:
 
     # Admin query backdoor — dev only, gated by config flag.
     if config.enable_admin_api:
-        app.include_router(build_admin_router(db))
+        app.include_router(build_admin_router(db, service))
 
     # MCP endpoint: /mcp/
     app.mount("/mcp", mcp_app)

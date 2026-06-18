@@ -148,6 +148,58 @@ class BanyanService:
                 )
             self.graphs.delete(conn, graph_id)
 
+    def purge_graph(self, graph_id: str) -> dict:
+        """
+        Hard-delete a graph and all its content with prejudice.
+
+        Dev/debug environments only.  Skips ledger discipline, referential
+        integrity checks, and the "empty first" guard on delete_graph.
+
+        Deletes in FK-safe order:
+          1. All links where from_graph_id OR to_graph_id matches.
+          2. All nodes belonging to the graph.
+          3. All ledger entries referencing the graph.
+          4. All snapshots belonging to the graph.
+          5. The graph row itself.
+
+        Returns a summary dict of row counts deleted.
+        """
+        p = self.db.placeholder
+        with self.db.connect() as conn:
+            if self.graphs.get(conn, graph_id) is None:
+                raise KeyError(f"Graph '{graph_id}' not found.")
+
+            cur = conn.execute(
+                f"DELETE FROM link WHERE from_graph_id = {p} OR to_graph_id = {p}",
+                [graph_id, graph_id],
+            )
+            links_deleted = cur.rowcount if cur.rowcount is not None else -1
+
+            cur = conn.execute(
+                f"DELETE FROM node WHERE graph_id = {p}", [graph_id]
+            )
+            nodes_deleted = cur.rowcount if cur.rowcount is not None else -1
+
+            cur = conn.execute(
+                f"DELETE FROM banyan_ledger WHERE source_graph_id = {p}", [graph_id]
+            )
+            ledger_deleted = cur.rowcount if cur.rowcount is not None else -1
+
+            cur = conn.execute(
+                f"DELETE FROM snapshot WHERE graph_id = {p}", [graph_id]
+            )
+            snapshots_deleted = cur.rowcount if cur.rowcount is not None else -1
+
+            self.graphs.delete(conn, graph_id)
+
+        return {
+            "graph_id": graph_id,
+            "links_deleted": links_deleted,
+            "nodes_deleted": nodes_deleted,
+            "ledger_entries_deleted": ledger_deleted,
+            "snapshots_deleted": snapshots_deleted,
+        }
+
     # ── Node operations ───────────────────────────────────────────────────────
 
     def add_node(
@@ -856,13 +908,49 @@ class BanyanService:
                             "default_link_type_id in batch header."
                         )
                     to_graph_id = data.get("to_graph_id", graph_id)
+
+                    # Resolve from_node_id — accept UUID directly or look up by
+                    # source_id.  Resolution happens inside the open transaction, so
+                    # nodes added in Phase 1 of this same batch are visible here.
+                    from_node_id = data.get("from_node_id")
+                    if not from_node_id:
+                        from_src = data.get("from_source_id")
+                        if not from_src:
+                            raise ValueError(
+                                "CREATE_LINK requires either from_node_id or from_source_id."
+                            )
+                        fn = self.nodes.get_by_source(conn, graph_id, from_src)
+                        if fn is None:
+                            raise KeyError(
+                                f"CREATE_LINK: no node with source_id={from_src!r} "
+                                f"in graph {graph_id!r}."
+                            )
+                        from_node_id = fn["node_id"]
+
+                    # Resolve to_node_id — same pattern; to_graph_id may differ for
+                    # cross-graph RELATED links.
+                    to_node_id = data.get("to_node_id")
+                    if not to_node_id:
+                        to_src = data.get("to_source_id")
+                        if not to_src:
+                            raise ValueError(
+                                "CREATE_LINK requires either to_node_id or to_source_id."
+                            )
+                        tn = self.nodes.get_by_source(conn, to_graph_id, to_src)
+                        if tn is None:
+                            raise KeyError(
+                                f"CREATE_LINK: no node with source_id={to_src!r} "
+                                f"in graph {to_graph_id!r}."
+                            )
+                        to_node_id = tn["node_id"]
+
                     link_id = self.links.insert(
                         conn,
                         link_type_id=lt_id,
                         from_graph_id=graph_id,
                         to_graph_id=to_graph_id,
-                        from_node_id=data["from_node_id"],
-                        to_node_id=data["to_node_id"],
+                        from_node_id=from_node_id,
+                        to_node_id=to_node_id,
                         actor_id=effective_actor,
                         metadata=data.get("metadata"),
                     )
