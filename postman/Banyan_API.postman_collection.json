@@ -334,7 +334,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version_label\": \"v1.0-review\"\n}"
+              "raw": "{\n  \"version_label\": \"v1.0-review\",\n  \"notes\": \"Pre-review baseline\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/snapshots",
@@ -1050,7 +1050,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version_label\": \"v1.0\"\n}"
+              "raw": "{\n  \"version_label\": \"v1.0\",\n  \"notes\": \"Baseline before review cycle\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/snapshots",
