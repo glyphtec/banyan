@@ -113,15 +113,20 @@ class SnapshotCreate(BaseModel):
 class SnapshotRestoreRequest(BaseModel):
     new_name: str | None = None
 
-class SnapshotResponse(BaseModel):
+class SnapshotHeaderResponse(BaseModel):
+    """Header-only snapshot metadata — no payload. Used for list endpoints."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
     snapshot_id: str
     graph_id: str
     version_label: str
     ledger_id: int
     actor_id: str
-    snapshot_payload: dict = {}
     inserted_datetime: Any = None
+
+
+class SnapshotResponse(SnapshotHeaderResponse):
+    """Full snapshot including payload. Used for create/get-single endpoints."""
+    snapshot_payload: dict = {}
 
 
 class ImportRequest(BaseModel):
@@ -365,7 +370,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    @router.get("/graphs/{graph_id}/snapshots", response_model=list[SnapshotResponse])
+    @router.get("/graphs/{graph_id}/snapshots", response_model=list[SnapshotHeaderResponse])
     def list_snapshots(graph_id: str):
         return service.list_snapshots(graph_id)
 

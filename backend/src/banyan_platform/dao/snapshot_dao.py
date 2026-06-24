@@ -63,17 +63,17 @@ class SnapshotDAO:
         return d
 
     def list_by_graph(self, conn, graph_id: str) -> list[dict]:
+        """Return header-only rows (no payload) for scalable listing."""
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM graph_snapshot WHERE graph_id = {p} "
+            f"SELECT snapshot_id, graph_id, version_label, ledger_id, "
+            f"actor_id, inserted_datetime "
+            f"FROM graph_snapshot WHERE graph_id = {p} "
             f"ORDER BY inserted_datetime",
             [graph_id],
         )
         cols = [c[0] for c in cursor.description]
-        result = []
-        for row in cursor.fetchall():
-            d = normalise_row(dict(zip(cols, row)))
-            if isinstance(d.get("snapshot_payload"), str):
-                d["snapshot_payload"] = json.loads(d["snapshot_payload"])
-            result.append(d)
-        return result
+        return [
+            normalise_row(dict(zip(cols, row)))
+            for row in cursor.fetchall()
+        ]
