@@ -40,8 +40,9 @@ class NodeDAO:
         notes: str | None = None,
         metadata: dict | None = None,
         actor_id: str | None = None,
+        node_id: str | None = None,
     ) -> str:
-        node_id = str(uuid.uuid4())
+        node_id = node_id or str(uuid.uuid4())
         p = self.db.placeholder
         conn.execute(
             f"""

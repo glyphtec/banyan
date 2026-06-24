@@ -145,3 +145,26 @@ def test_graph_history_after_mutations(client):
     entry = next(e for e in r.json() if e["entity_id"] == n["node_id"])
     assert entry["primitive_verb"] == "ADD_NODE"
 
+
+def test_undo_ledger_entry_via_rest(client):
+    g = client.post("/api/v1/graphs", json={"name": "G"}, headers=HEADERS).json()
+    gid = g["graph_id"]
+    n = client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "N1", "name": "Node"}, headers=HEADERS).json()
+    history = client.get(f"/api/v1/graphs/{gid}/history").json()
+    add_entry = next(e for e in history if e["entity_id"] == n["node_id"])
+
+    r = client.post(f"/api/v1/ledger/{add_entry['ledger_id']}/undo", headers=HEADERS)
+    assert r.status_code == 201
+    undo = r.json()
+    assert undo["primitive_verb"] == "DELETE_NODE"
+    assert undo["reverses_ledger_id"] == add_entry["ledger_id"]
+
+    nodes = client.get(f"/api/v1/graphs/{gid}/nodes").json()
+    assert not any(nd["node_id"] == n["node_id"] for nd in nodes)
+
+
+def test_undo_missing_returns_404(client):
+    r = client.post("/api/v1/ledger/999999/undo", headers=HEADERS)
+    assert r.status_code == 404
+

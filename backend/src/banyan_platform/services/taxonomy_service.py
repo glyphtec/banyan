@@ -1174,6 +1174,191 @@ class BanyanService:
         with self.db.connect() as conn:
             return self.snapshots.list_by_graph(conn, graph_id)
 
+    def undo_ledger_entry(self, ledger_id: int, actor_id: str) -> dict:
+        """
+        Create a compensating ledger entry that inverts a prior mutation.
+
+        Reads *reversal_payload* of the original entry to reconstruct the prior
+        state, applies the inverse mutation to the graph, and records a new
+        ledger entry with *reverses_ledger_id* pointing back to the original.
+
+        Single-entry undo only.  To undo a multi-entry transaction (e.g. a
+        delete_node that also destroyed links), undo each entry individually
+        in reverse ledger_id order.
+
+        Raises:
+            KeyError  — ledger entry not found, or target entity no longer exists.
+            ValueError — entity already exists (undo of DELETE/DESTROY when entity
+                         was re-created by other means), or unrecognised verb.
+        """
+        with self.db.connect() as conn:
+            entry = self.ledger.get(conn, ledger_id)
+            if entry is None:
+                raise KeyError(f"Ledger entry {ledger_id} not found.")
+
+            txn_id = str(uuid.uuid4())
+            verb = entry["primitive_verb"]
+            rp = entry["reversal_payload"]
+
+            if verb == "ADD_NODE":
+                node_id = rp["node_id"]
+                node = self.nodes.get(conn, node_id)
+                if node is None:
+                    raise KeyError(
+                        f"Cannot undo ADD_NODE {ledger_id}: "
+                        f"node '{node_id}' no longer exists."
+                    )
+                self.nodes.delete(conn, node_id)
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="DELETE_NODE",
+                    source_graph_id=entry["source_graph_id"],
+                    entity_id=node_id,
+                    payload={"node_id": node_id},
+                    reversal_payload=node,
+                    reverses_ledger_id=ledger_id,
+                )
+
+            elif verb == "UPDATE_NODE":
+                node_id = entry["entity_id"]
+                node = self.nodes.get(conn, node_id)
+                if node is None:
+                    raise KeyError(
+                        f"Cannot undo UPDATE_NODE {ledger_id}: "
+                        f"node '{node_id}' no longer exists."
+                    )
+                current_vals = {k: node[k] for k in rp}
+                self.nodes.update(conn, node_id, **rp, actor_id=actor_id)
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="UPDATE_NODE",
+                    source_graph_id=entry["source_graph_id"],
+                    entity_id=node_id,
+                    payload=rp,
+                    reversal_payload=current_vals,
+                    reverses_ledger_id=ledger_id,
+                )
+
+            elif verb == "DELETE_NODE":
+                if self.nodes.get(conn, rp["node_id"]) is not None:
+                    raise ValueError(
+                        f"Cannot undo DELETE_NODE {ledger_id}: "
+                        f"node '{rp['node_id']}' already exists."
+                    )
+                self.nodes.insert(
+                    conn,
+                    node_id=rp["node_id"],
+                    graph_id=rp["graph_id"],
+                    node_type_id=rp["node_type_id"],
+                    source_id=rp["source_id"],
+                    name=rp["name"],
+                    notes=rp.get("notes"),
+                    metadata=rp.get("metadata"),
+                    actor_id=actor_id,
+                )
+                restored = self.nodes.get(conn, rp["node_id"])
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="ADD_NODE",
+                    source_graph_id=entry["source_graph_id"],
+                    entity_id=rp["node_id"],
+                    payload=restored,
+                    reversal_payload={"node_id": rp["node_id"]},
+                    reverses_ledger_id=ledger_id,
+                )
+
+            elif verb == "CREATE_LINK":
+                link_id = rp["link_id"]
+                lk = self.links.get(conn, link_id)
+                if lk is None:
+                    raise KeyError(
+                        f"Cannot undo CREATE_LINK {ledger_id}: "
+                        f"link '{link_id}' no longer exists."
+                    )
+                self.links.delete(conn, link_id)
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="DESTROY_LINK",
+                    source_graph_id=entry["source_graph_id"],
+                    target_graph_id=entry.get("target_graph_id"),
+                    entity_id=link_id,
+                    payload={"link_id": link_id},
+                    reversal_payload=lk,
+                    reverses_ledger_id=ledger_id,
+                )
+
+            elif verb == "UPDATE_LINK":
+                link_id = entry["entity_id"]
+                lk = self.links.get(conn, link_id)
+                if lk is None:
+                    raise KeyError(
+                        f"Cannot undo UPDATE_LINK {ledger_id}: "
+                        f"link '{link_id}' no longer exists."
+                    )
+                current_vals = {k: lk[k] for k in rp}
+                self.links.update(conn, link_id, **rp, actor_id=actor_id)
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="UPDATE_LINK",
+                    source_graph_id=entry["source_graph_id"],
+                    target_graph_id=entry.get("target_graph_id"),
+                    entity_id=link_id,
+                    payload=rp,
+                    reversal_payload=current_vals,
+                    reverses_ledger_id=ledger_id,
+                )
+
+            elif verb == "DESTROY_LINK":
+                if self.links.get(conn, rp["link_id"]) is not None:
+                    raise ValueError(
+                        f"Cannot undo DESTROY_LINK {ledger_id}: "
+                        f"link '{rp['link_id']}' already exists."
+                    )
+                self.links.insert(
+                    conn,
+                    link_id=rp["link_id"],
+                    link_type_id=rp["link_type_id"],
+                    from_graph_id=rp["from_graph_id"],
+                    to_graph_id=rp["to_graph_id"],
+                    from_node_id=rp["from_node_id"],
+                    to_node_id=rp["to_node_id"],
+                    link_order=rp.get("link_order", 0.0),
+                    metadata=rp.get("metadata"),
+                    valid_from_datetime=rp.get("valid_from_datetime"),
+                    valid_until_datetime=rp.get("valid_until_datetime"),
+                    actor_id=actor_id,
+                )
+                restored_lk = self.links.get(conn, rp["link_id"])
+                new_ledger_id = self.ledger.append(
+                    conn,
+                    transaction_id=txn_id,
+                    actor_id=actor_id,
+                    primitive_verb="CREATE_LINK",
+                    source_graph_id=entry["source_graph_id"],
+                    target_graph_id=entry.get("target_graph_id"),
+                    entity_id=rp["link_id"],
+                    payload=restored_lk,
+                    reversal_payload={"link_id": rp["link_id"]},
+                    reverses_ledger_id=ledger_id,
+                )
+
+            else:
+                raise ValueError(
+                    f"Verb '{verb}' on ledger entry {ledger_id} cannot be undone."
+                )
+
+            return self.ledger.get(conn, new_ledger_id)
+
     def restore_snapshot(
         self,
         snapshot_id: str,

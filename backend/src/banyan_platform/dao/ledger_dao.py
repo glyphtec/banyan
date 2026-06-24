@@ -57,6 +57,17 @@ class LedgerDAO:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    def get(self, conn, ledger_id: int) -> dict | None:
+        """Fetch a single ledger entry by primary key."""
+        p = self.db.placeholder
+        cursor = conn.execute(
+            f"SELECT * FROM banyan_ledger WHERE ledger_id = {p}", [ledger_id]
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return _hydrate(row, [c[0] for c in cursor.description])
+
     def append(
         self,
         conn,
@@ -69,12 +80,14 @@ class LedgerDAO:
         payload: dict,
         reversal_payload: dict,
         target_graph_id: str | None = None,
+        reverses_ledger_id: int | None = None,
     ) -> int:
         """
         Append one atomic ledger entry and return its ledger_id.
 
-        *payload*          — state after the mutation (forward delta)
-        *reversal_payload* — full prior state needed to perfectly invert this entry
+        *payload*            — state after the mutation (forward delta)
+        *reversal_payload*   — full prior state needed to perfectly invert this entry
+        *reverses_ledger_id* — set when this entry is a compensating UNDO of a prior entry
         """
         p = self.db.placeholder
         cursor = conn.execute(
@@ -82,15 +95,15 @@ class LedgerDAO:
             INSERT INTO banyan_ledger (
                 transaction_id, actor_id, primitive_verb,
                 source_graph_id, target_graph_id, entity_id,
-                payload, reversal_payload
+                payload, reversal_payload, reverses_ledger_id
             )
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
             RETURNING ledger_id
             """,
             [
                 transaction_id, actor_id, primitive_verb,
                 source_graph_id, target_graph_id, entity_id,
-                _dumps(payload), _dumps(reversal_payload),
+                _dumps(payload), _dumps(reversal_payload), reverses_ledger_id,
             ],
         )
         return int(cursor.fetchone()[0])

@@ -47,8 +47,9 @@ class LinkDAO:
         valid_from_datetime: datetime | None = None,
         valid_until_datetime: datetime | None = None,
         actor_id: str | None = None,
+        link_id: str | None = None,
     ) -> str:
-        link_id = str(uuid.uuid4())
+        link_id = link_id or str(uuid.uuid4())
         p = self.db.placeholder
         conn.execute(
             f"""

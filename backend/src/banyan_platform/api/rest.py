@@ -131,6 +131,21 @@ class SnapshotResponse(SnapshotHeaderResponse):
     snapshot_payload: dict = {}
 
 
+class LedgerEntryResponse(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    ledger_id: int
+    transaction_id: str
+    actor_id: str
+    primitive_verb: str
+    source_graph_id: str
+    target_graph_id: str | None = None
+    entity_id: str
+    payload: dict = {}
+    reversal_payload: dict = {}
+    reverses_ledger_id: int | None = None
+    inserted_datetime: Any = None
+
+
 class ImportRequest(BaseModel):
     export_doc: dict
     new_name: str | None = None
@@ -404,7 +419,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     def get_node_types():
         return service.get_node_types()
 
-    # -- History ---------------------------------------------------------------
+    # -- History / Undo --------------------------------------------------------
 
     @router.get("/graphs/{graph_id}/history")
     def get_graph_history(
@@ -412,6 +427,18 @@ def build_rest_router(service: BanyanService) -> APIRouter:
         since_ledger_id: int | None = None,
     ):
         return service.get_graph_history(graph_id, since_ledger_id)
+
+    @router.post("/ledger/{ledger_id}/undo", response_model=LedgerEntryResponse, status_code=201)
+    def undo_ledger_entry(
+        ledger_id: int,
+        actor_id: str = Depends(get_actor),
+    ):
+        try:
+            return service.undo_ledger_entry(ledger_id, actor_id=actor_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
 
     # -- Export / Import / Diff / Batch ----------------------------------------
 
