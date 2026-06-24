@@ -164,3 +164,91 @@ def test_snapshot_created_after_node_mutation(service):
     snaps = service.list_snapshots(g["graph_id"])
     assert len(snaps) == 1
 
+
+# ---------------------------------------------------------------------------
+# Undo tests
+# ---------------------------------------------------------------------------
+
+def test_undo_add_node(service):
+    g = service.create_graph("G", actor_id=ACTOR)
+    n = service.add_node(g["graph_id"], "N1", "Node", actor_id=ACTOR)
+    history = service.get_graph_history(g["graph_id"])
+    add_entry = next(e for e in history if e["primitive_verb"] == "ADD_NODE" and e["entity_id"] == n["node_id"])
+
+    undo_entry = service.undo_ledger_entry(add_entry["ledger_id"], actor_id=ACTOR)
+
+    assert undo_entry["primitive_verb"] == "DELETE_NODE"
+    assert undo_entry["reverses_ledger_id"] == add_entry["ledger_id"]
+    assert not any(nd["node_id"] == n["node_id"] for nd in service.list_nodes(g["graph_id"]))
+
+
+def test_undo_update_node(service):
+    g = service.create_graph("G", actor_id=ACTOR)
+    n = service.add_node(g["graph_id"], "N1", "Original", actor_id=ACTOR)
+    service.update_node(n["node_id"], actor_id=ACTOR, name="Modified")
+    history = service.get_graph_history(g["graph_id"])
+    upd_entry = next(e for e in history if e["primitive_verb"] == "UPDATE_NODE")
+
+    undo_entry = service.undo_ledger_entry(upd_entry["ledger_id"], actor_id=ACTOR)
+
+    assert undo_entry["primitive_verb"] == "UPDATE_NODE"
+    assert undo_entry["reverses_ledger_id"] == upd_entry["ledger_id"]
+    assert service.get_node(n["node_id"])["name"] == "Original"
+
+
+def test_undo_delete_node(service):
+    g = service.create_graph("G", actor_id=ACTOR)
+    n = service.add_node(g["graph_id"], "N1", "Node", actor_id=ACTOR)
+    node_id = n["node_id"]
+    service.delete_node(node_id, actor_id=ACTOR)
+    history = service.get_graph_history(g["graph_id"])
+    del_entry = next(e for e in history if e["primitive_verb"] == "DELETE_NODE")
+
+    undo_entry = service.undo_ledger_entry(del_entry["ledger_id"], actor_id=ACTOR)
+
+    assert undo_entry["primitive_verb"] == "ADD_NODE"
+    assert undo_entry["reverses_ledger_id"] == del_entry["ledger_id"]
+    restored = service.get_node(node_id)
+    assert restored["node_id"] == node_id
+    assert restored["name"] == "Node"
+
+
+def test_undo_create_link(service):
+    g = service.create_graph("G", actor_id=ACTOR)
+    root = service.add_node(g["graph_id"], "ROOT", "Root", actor_id=ACTOR)
+    child = service.add_node(g["graph_id"], "CHILD", "Child", actor_id=ACTOR)
+    lk = service.create_link(
+        link_type_id=1,
+        from_graph_id=g["graph_id"], to_graph_id=g["graph_id"],
+        from_node_id=root["node_id"], to_node_id=child["node_id"],
+        actor_id=ACTOR,
+    )
+    history = service.get_graph_history(g["graph_id"])
+    cl_entry = next(e for e in history if e["primitive_verb"] == "CREATE_LINK")
+
+    undo_entry = service.undo_ledger_entry(cl_entry["ledger_id"], actor_id=ACTOR)
+
+    assert undo_entry["primitive_verb"] == "DESTROY_LINK"
+    assert undo_entry["reverses_ledger_id"] == cl_entry["ledger_id"]
+    import pytest
+    with pytest.raises(KeyError):
+        service.get_link(lk["link_id"])
+
+
+def test_undo_missing_ledger_entry(service):
+    import pytest
+    with pytest.raises(KeyError):
+        service.undo_ledger_entry(999999, actor_id=ACTOR)
+
+
+def test_undo_stores_reverses_ledger_id_in_history(service):
+    g = service.create_graph("G", actor_id=ACTOR)
+    n = service.add_node(g["graph_id"], "N1", "Node", actor_id=ACTOR)
+    history = service.get_graph_history(g["graph_id"])
+    add_entry = next(e for e in history if e["primitive_verb"] == "ADD_NODE" and e["entity_id"] == n["node_id"])
+    service.undo_ledger_entry(add_entry["ledger_id"], actor_id=ACTOR)
+
+    full_history = service.get_graph_history(g["graph_id"])
+    undo_entry = next(e for e in full_history if e["primitive_verb"] == "DELETE_NODE")
+    assert undo_entry["reverses_ledger_id"] == add_entry["ledger_id"]
+

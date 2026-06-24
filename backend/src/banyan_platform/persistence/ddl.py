@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS banyan_ledger (
     entity_id         UUID NOT NULL,             -- The Node UUID or Link UUID acted upon
     payload           JSON NOT NULL,             -- Forward mutation delta (state after)
     reversal_payload  JSON NOT NULL,             -- Full prior state required to invert this entry (UNDO)
+    reverses_ledger_id BIGINT REFERENCES banyan_ledger(ledger_id), -- Back-pointer set when this entry is a compensating UNDO
     inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
