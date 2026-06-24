@@ -110,6 +110,9 @@ class LinkResponse(BaseModel):
 class SnapshotCreate(BaseModel):
     version_label: str
 
+class SnapshotRestoreRequest(BaseModel):
+    new_name: str | None = None
+
 class SnapshotResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     snapshot_id: str
@@ -365,6 +368,23 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     @router.get("/graphs/{graph_id}/snapshots", response_model=list[SnapshotResponse])
     def list_snapshots(graph_id: str):
         return service.list_snapshots(graph_id)
+
+    @router.post("/snapshots/{snapshot_id}/restore", response_model=GraphResponse, status_code=201)
+    def restore_snapshot(
+        snapshot_id: str,
+        body: SnapshotRestoreRequest,
+        actor_id: str = Depends(get_actor),
+    ):
+        try:
+            return service.restore_snapshot(
+                snapshot_id=snapshot_id,
+                actor_id=actor_id,
+                new_name=body.new_name,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     # -- Lookup ----------------------------------------------------------------
 

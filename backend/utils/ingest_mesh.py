@@ -24,8 +24,15 @@ Data volume by --max-depth (Anatomy / "A" tree):
 
 Usage
 -----
-    # Download & ingest at default depth 4 (~2 500 nodes):
+    # Generate export JSON at default depth 4 (~2 500 nodes):
     python utils/ingest_mesh.py
+
+    # Write to a file:
+    python utils/ingest_mesh.py --output data/mesh.json
+
+    # Load into a running Banyan instance:
+    python utils/ingest_mesh.py | python utils/import_graph.py -
+    python utils/import_graph.py data/mesh.json
 
     # Full anatomy tree (no depth limit):
     python utils/ingest_mesh.py --max-depth 0
@@ -36,7 +43,7 @@ Usage
     # Use a cached file you already downloaded:
     python utils/ingest_mesh.py --mesh-file path/to/d2025.bin
 
-    # Dry-run (download & parse, print stats, no API calls):
+    # Dry-run (download & parse, print stats, no output):
     python utils/ingest_mesh.py --dry-run
 """
 from __future__ import annotations
@@ -47,19 +54,18 @@ import os
 import sys
 import urllib.error as _err
 import urllib.request as _req
-from collections import defaultdict
+from datetime import datetime, timezone
 
 MESH_URL_TEMPLATE = (
     "https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/asciimesh/d{year}.bin"
 )
 DEFAULT_CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "mesh")
 DEFAULT_GRAPH_NAME = "MeSH Anatomy"
-BATCH_SIZE = 500
+BATCH_SIZE = 500  # retained for reference — import_graph.py handles chunking
 
-
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 def _get(url: str) -> tuple[int, object]:
+    # Used only by _ensure_mesh_file indirectly; kept for download progress
     try:
         with _req.urlopen(url) as r:
             return r.status, json.loads(r.read())
@@ -72,55 +78,14 @@ def _get(url: str) -> tuple[int, object]:
         return e.code, {"error": detail}
 
 
-def _post(url: str, data: dict, actor_id: str = "ingest") -> tuple[int, object]:
-    body = json.dumps(data, default=str).encode()
-    req = _req.Request(
-        url, data=body, method="POST",
-        headers={"Content-Type": "application/json", "X-Actor-Id": actor_id},
-    )
-    try:
-        with _req.urlopen(req) as r:
-            return r.status, json.loads(r.read())
-    except _err.HTTPError as e:
-        body = e.read()
-        try:
-            detail = json.loads(body).get("detail", body.decode())
-        except Exception:
-            detail = body.decode(errors="replace")
-        return e.code, {"error": detail}
+# removed: _post — import_graph.py is the sole REST driver
 
 
 def _die(status: int, data: object, context: str) -> None:
     sys.exit(f"ERROR [{context}] HTTP {status}: {data}")
 
 
-def _run_batches(
-    base: str,
-    graph_id: str,
-    actor_id: str,
-    lt_id: int,
-    ops: list[dict],
-    kind: str,
-    chunk_size: int = BATCH_SIZE,
-) -> int:
-    """Submit ops in chunks; returns total count processed."""
-    total = len(ops)
-    done = 0
-    for i in range(0, total, chunk_size):
-        chunk = ops[i : i + chunk_size]
-        payload: dict = {
-            "graph_id": graph_id,
-            "actor_id": actor_id,
-            "default_link_type_id": lt_id,
-            "node_operations": chunk if kind == "nodes" else [],
-            "link_operations": chunk if kind == "links" else [],
-        }
-        status, result = _post(f"{base}/api/v1/graphs/batch", payload, actor_id)
-        if status != 200:
-            _die(status, result, f"{kind} batch {i // chunk_size + 1}")
-        done += len(chunk)
-        print(f"  {kind}: {done}/{total}", end="\r" if done < total else "\n", flush=True)
-    return done
+# removed: _run_batches — import_graph.py handles large-payload submission
 
 
 # ── MeSH download ─────────────────────────────────────────────────────────────
@@ -257,119 +222,86 @@ def _parse_mesh(
 
 # ── Ingest logic ──────────────────────────────────────────────────────────────
 
-def ingest(
-    base: str,
+
+def generate(
+    nodes: list[dict],
+    edges: list[tuple[str, str]],
     graph_name: str,
-    actor_id: str,
-    dry_run: bool,
-    mesh_file: str | None,
-    year: int,
     tree: str,
     max_depth: int,
-    cache_dir: str,
-) -> None:
-    mesh_path = _ensure_mesh_file(mesh_file, year, cache_dir)
-    nodes, edges = _parse_mesh(mesh_path, tree, max_depth)
-
-    if dry_run:
-        print("[dry-run] No API calls made.")
-        return
-
-    # ── Check for name collision ──────────────────────────────────────────────
-    status, graphs = _get(f"{base}/api/v1/graphs")
-    if status != 200:
-        _die(status, graphs, "list graphs")
-    if any(g["name"] == graph_name for g in graphs):
-        sys.exit(
-            f"Graph '{graph_name}' already exists. "
-            "Use --graph-name to choose a different name."
-        )
-
-    # ── Lookup HIERARCHICAL link type ─────────────────────────────────────────
-    status, lt_list = _get(f"{base}/api/v1/link-types")
-    if status != 200:
-        _die(status, lt_list, "link-types")
-    hier_lt_id = next(
-        (lt["link_type_id"] for lt in lt_list if lt["name"] == "HIERARCHICAL"), None
-    )
-    if hier_lt_id is None:
-        sys.exit("HIERARCHICAL link type not found.")
-
-    # ── Create graph ──────────────────────────────────────────────────────────
-    status, graph = _post(
-        f"{base}/api/v1/graphs",
-        {"name": graph_name,
-         "notes": (
-             f"MeSH 2025 — tree {tree!r}, max_depth={max_depth or '∞'}. "
-             "US NLM Medical Subject Headings. Polyhierarchical."
-         )},
-        actor_id,
-    )
-    if status != 201:
-        _die(status, graph, "create graph")
-    graph_id = graph["graph_id"]
-    print(f"  Graph created: {graph_id}")
-
-    # ── Batch ADD_NODE ────────────────────────────────────────────────────────
-    node_ops = [
-        {"verb": "ADD_NODE",
-         "data": {"source_id": n["source_id"], "name": n["name"],
-                  **({"notes": n["notes"]} if n.get("notes") else {})}}
-        for n in nodes
-    ]
-    _run_batches(base, graph_id, actor_id, hier_lt_id, node_ops, "nodes")
-
-    # ── Batch CREATE_LINK using source_ids (no GET /nodes needed) ─────────────
-    link_ops = [
-        {"verb": "CREATE_LINK",
-         "data": {"from_source_id": parent_src, "to_source_id": child_src}}
+) -> dict:
+    """Return a Banyan v1.1 export document from parsed MeSH data."""
+    links = [
+        {
+            "from_source_id": parent_src,
+            "to_source_id": child_src,
+            "link_type_name": "HIERARCHICAL",
+        }
         for parent_src, child_src in edges
     ]
-    _run_batches(base, graph_id, actor_id, hier_lt_id, link_ops, "links")
-    print(f"Done. Graph '{graph_name}' ingested successfully.")
+    return {
+        "banyan_export_version": "1.1",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "graph": {
+            "name": graph_name,
+            "notes": (
+                f"MeSH 2025 -- tree {tree!r}, max_depth={max_depth or 'unlimited'}. "
+                f"US NLM Medical Subject Headings. Polyhierarchical. "
+                f"{len(nodes):,} nodes, {len(links):,} links."
+            ),
+        },
+        "nodes": nodes,
+        "links": links,
+        "cross_graph_links": [],
+    }
 
-
-# ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Ingest MeSH descriptor tree into Banyan",
+        description="Generate a Banyan export JSON for a MeSH descriptor tree.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Node counts by --max-depth (Anatomy / A tree):\n"
-            "  1 →    ~15   2 →   ~100   3 →   ~650\n"
-            "  4 →  ~2500   5 →  ~5000   0 → ~6600 (full)"
+            "  1 ->    ~15   2 ->   ~100   3 ->   ~650\n"
+            "  4 ->  ~2500   5 ->  ~5000   0 -> ~6600 (full)"
         ),
     )
-    p.add_argument("--base-url",    default="http://localhost:8000")
-    p.add_argument("--graph-name",  default=DEFAULT_GRAPH_NAME)
-    p.add_argument("--actor-id",    default="ingest")
+    p.add_argument("--graph-name",  default=DEFAULT_GRAPH_NAME,
+                   help="Graph name to embed in the export document")
+    p.add_argument("--output",      metavar="FILE",
+                   help="Write JSON to FILE instead of stdout")
     p.add_argument("--mesh-file",   default=None,
                    help="Path to a pre-downloaded MeSH .bin file. "
                         "If omitted the file is downloaded and cached.")
     p.add_argument("--year",        type=int, default=2025,
-                   help="MeSH release year used to build the download URL (default: 2025)")
+                   help="MeSH release year for the download URL (default: 2025)")
     p.add_argument("--cache-dir",   default=DEFAULT_CACHE_DIR,
                    help="Directory for the downloaded .bin file")
     p.add_argument("--tree",        default="A",
-                   help="MeSH tree prefix to ingest (default: A = Anatomy). "
+                   help="MeSH tree prefix (default: A = Anatomy). "
                         "Other useful values: C (Diseases), D (Chemicals).")
     p.add_argument("--max-depth",   type=int, default=4,
-                   help="Maximum tree depth to import (0 = unlimited, default: 4)")
+                   help="Maximum tree depth (0 = unlimited, default: 4)")
     p.add_argument("--dry-run",     action="store_true",
-                   help="Download & parse, print stats, but make no API calls")
+                   help="Download and parse, print stats, but write no output")
     args = p.parse_args()
-    ingest(
-        base=args.base_url,
-        graph_name=args.graph_name,
-        actor_id=args.actor_id,
-        dry_run=args.dry_run,
-        mesh_file=args.mesh_file,
-        year=args.year,
-        tree=args.tree,
-        max_depth=args.max_depth,
-        cache_dir=args.cache_dir,
-    )
+
+    mesh_path = _ensure_mesh_file(args.mesh_file, args.year, args.cache_dir)
+    nodes, edges = _parse_mesh(mesh_path, args.tree, args.max_depth)
+
+    if args.dry_run:
+        print("[dry-run] No output written.", file=sys.stderr)
+        return
+
+    doc = generate(nodes, edges, args.graph_name, args.tree, args.max_depth)
+    text = json.dumps(doc, indent=2, ensure_ascii=False)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print(f"Written to {args.output}", file=sys.stderr)
+    else:
+        print(text)
 
 
 if __name__ == "__main__":

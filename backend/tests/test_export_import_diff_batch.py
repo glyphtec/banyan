@@ -38,10 +38,10 @@ def test_export_structure(service):
     g, parent, child, link, _ = _make_graph_with_nodes(service)
     doc = service.export_graph(g["graph_id"])
 
-    assert doc["banyan_export_version"] == "1.0"
+    assert doc["banyan_export_version"] == "1.1"
     assert "exported_at" in doc
     assert doc["graph"]["graph_id"] == g["graph_id"]
-    assert len(doc["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01
+    assert len(doc["nodes"]) == 2   # PARENT-01 + CHILD-01 ($ROOT$ excluded from export)
     assert len(doc["links"]) == 1
     assert doc["cross_graph_links"] == []
 
@@ -136,8 +136,8 @@ def test_snapshot_stores_payload(service):
 
     assert snap["snapshot_id"]
     payload = snap["snapshot_payload"]
-    assert payload.get("banyan_export_version") == "1.0"
-    assert len(payload["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01
+    assert payload.get("banyan_export_version") == "1.1"
+    assert len(payload["nodes"]) == 2   # PARENT-01 + CHILD-01 ($ROOT$ excluded from export)
     assert len(payload["links"]) == 1
 
 
@@ -148,6 +148,62 @@ def test_create_graph_has_root_node(service):
     root = service.get_node(g["root_node_id"])
     assert root["source_id"] == "$ROOT$"
     assert root["name"] == "$ROOT$"
+
+
+def test_snapshot_restore_creates_new_graph(service):
+    g, parent, child, link, _ = _make_graph_with_nodes(service, "RestoreSource")
+    snap = service.create_snapshot(g["graph_id"], "v1.0", actor_id=ACTOR)
+
+    restored = service.restore_snapshot(snap["snapshot_id"], actor_id=ACTOR)
+
+    # New graph created — different graph_id, same content
+    assert restored["graph_id"] != g["graph_id"]
+    assert "RestoreSource" in restored["name"]
+    assert "v1.0" in restored["name"]
+
+    nodes = service.list_nodes(restored["graph_id"])
+    source_ids = {n["source_id"] for n in nodes}
+    assert source_ids == {"$ROOT$", "PARENT-01", "CHILD-01"}
+
+
+def test_snapshot_restore_custom_name(service):
+    g, _, _, _, _ = _make_graph_with_nodes(service, "SnapNameSrc")
+    snap = service.create_snapshot(g["graph_id"], "v2.0", actor_id=ACTOR)
+
+    restored = service.restore_snapshot(
+        snap["snapshot_id"], actor_id=ACTOR, new_name="My Restored Graph"
+    )
+    assert restored["name"] == "My Restored Graph"
+
+
+def test_snapshot_restore_missing_raises(service):
+    import pytest
+    with pytest.raises(KeyError):
+        service.restore_snapshot("00000000-0000-0000-0000-000000000000", actor_id=ACTOR)
+
+
+def test_rest_restore_snapshot(client):
+    r = client.post("/api/v1/graphs", json={"name": "RestSnap"},
+                    headers={"X-Actor-Id": ACTOR})
+    gid = r.json()["graph_id"]
+    client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "R1", "name": "RestoreNode"},
+                headers={"X-Actor-Id": ACTOR})
+    snap_r = client.post(f"/api/v1/graphs/{gid}/snapshots",
+                         json={"version_label": "snap-v1"},
+                         headers={"X-Actor-Id": ACTOR})
+    assert snap_r.status_code == 201
+    snap_id = snap_r.json()["snapshot_id"]
+
+    restore_r = client.post(
+        f"/api/v1/snapshots/{snap_id}/restore",
+        json={"new_name": "RestSnap Restored"},
+        headers={"X-Actor-Id": ACTOR},
+    )
+    assert restore_r.status_code == 201
+    restored = restore_r.json()
+    assert restored["name"] == "RestSnap Restored"
+    assert restored["graph_id"] != gid
 
 
 # ---------------------------------------------------------------------------
@@ -347,8 +403,8 @@ def test_rest_export(client):
     r2 = client.get(f"/api/v1/graphs/{gid}/export")
     assert r2.status_code == 200
     doc = r2.json()
-    assert doc["banyan_export_version"] == "1.0"
-    assert len(doc["nodes"]) == 2  # $ROOT$ + N1
+    assert doc["banyan_export_version"] == "1.1"
+    assert len(doc["nodes"]) == 1  # N1 ($ROOT$ excluded from export)
 
 
 def test_rest_import(client):

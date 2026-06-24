@@ -534,7 +534,34 @@ class BanyanService:
             if graph is None:
                 raise KeyError(f"Graph '{graph_id}' not found.")
 
-            nodes = self.nodes.list_by_graph(conn, graph_id)
+            all_nodes = self.nodes.list_by_graph(conn, graph_id)
+            # Exclude the implicit $ROOT$ node — it is bootstrapped automatically
+            # on every graph creation and is not part of user-managed content.
+            nodes = [n for n in all_nodes if n["source_id"] != self._ROOT_SOURCE_ID]
+
+            # node_id → source_id (include $ROOT$ so link annotations are complete)
+            node_id_to_source: dict[str, str] = {
+                n["node_id"]: n["source_id"] for n in all_nodes
+            }
+            # link_type_id → name for human-readable link annotations
+            lt_id_to_name: dict[int, str] = {
+                lt["link_type_id"]: lt["name"]
+                for lt in self.lookup.get_link_types(conn)
+            }
+
+            def _annotate(raw_links: list[dict]) -> list[dict]:
+                out = []
+                for lk in raw_links:
+                    a = dict(lk)
+                    a["from_source_id"] = node_id_to_source.get(
+                        lk["from_node_id"], lk["from_node_id"]
+                    )
+                    a["to_source_id"] = node_id_to_source.get(
+                        lk["to_node_id"], lk["to_node_id"]
+                    )
+                    a["link_type_name"] = lt_id_to_name.get(lk["link_type_id"])
+                    out.append(a)
+                return out
 
             p = self.db.placeholder
             cursor = conn.execute(
@@ -543,7 +570,9 @@ class BanyanService:
             )
             cols = [c[0] for c in cursor.description]
             from banyan_platform.dao._utils import normalise_row
-            intra_links = [normalise_row(dict(zip(cols, row))) for row in cursor.fetchall()]
+            intra_links = _annotate(
+                [normalise_row(dict(zip(cols, row))) for row in cursor.fetchall()]
+            )
 
             cross_links: list[dict] = []
             if include_cross_graph_links:
@@ -552,10 +581,12 @@ class BanyanService:
                     [graph_id, graph_id],
                 )
                 cols2 = [c[0] for c in cursor2.description]
-                cross_links = [normalise_row(dict(zip(cols2, row))) for row in cursor2.fetchall()]
+                cross_links = _annotate(
+                    [normalise_row(dict(zip(cols2, row))) for row in cursor2.fetchall()]
+                )
 
         return {
-            "banyan_export_version": "1.0",
+            "banyan_export_version": "1.1",
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "graph": graph,
             "nodes": nodes,
@@ -599,6 +630,10 @@ class BanyanService:
                 if target_graph is None:
                     raise KeyError(f"Target graph '{merge_into_graph_id}' not found.")
                 target_graph_id = merge_into_graph_id
+                existing_root = self.nodes.get_by_source(
+                    conn, target_graph_id, self._ROOT_SOURCE_ID
+                )
+                root_node_id = existing_root["node_id"] if existing_root else None
             else:
                 name = new_name or src_graph.get("name", "Imported Graph")
                 target_graph_id = self.graphs.insert(
@@ -608,18 +643,58 @@ class BanyanService:
                     topology_id=src_graph.get("topology_id"),
                     actor_id=actor_id,
                 )
-                target_graph = self.graphs.get(conn, target_graph_id)
+                # Bootstrap $ROOT$ inline — mirrors create_graph() but cannot call
+                # it here since we are already inside an open connection.
+                resolved_nt_id = self._resolve_node_type_id(conn, None)
+                root_node_id = self.nodes.insert(
+                    conn,
+                    graph_id=target_graph_id,
+                    node_type_id=resolved_nt_id,
+                    source_id=self._ROOT_SOURCE_ID,
+                    name=self._ROOT_SOURCE_ID,
+                    actor_id=actor_id,
+                )
+                self.graphs.set_root_node(conn, target_graph_id, root_node_id)
+                root_node = self.nodes.get(conn, root_node_id)
+                self.ledger.append(
+                    conn,
+                    transaction_id=str(uuid.uuid4()),
+                    actor_id=actor_id,
+                    primitive_verb="ADD_NODE",
+                    source_graph_id=target_graph_id,
+                    entity_id=root_node_id,
+                    payload=root_node,
+                    reversal_payload={"node_id": root_node_id},
+                )
 
-            # ── Build source_id → new_node_id mapping ───────────────────────
-            node_id_map: dict[str, str] = {}  # old_node_id → new_node_id
+            # ── Pre-load lookup tables ───────────────────────────────────────
             default_node_type = self.lookup.get_node_type_by_name(conn, "Generic")
             default_nt_id = int(default_node_type["node_type_id"])
+            lt_name_to_id: dict[str, int] = {
+                lt["name"]: lt["link_type_id"]
+                for lt in self.lookup.get_link_types(conn)
+            }
+
+            # ── Import nodes ─────────────────────────────────────────────────
+            # node_id_map  : old UUID → new UUID  (backward compat, v1.0 format)
+            # source_id_map: source_id → new UUID  (primary path, v1.1 format)
+            node_id_map: dict[str, str] = {}
+            source_id_map: dict[str, str] = {self._ROOT_SOURCE_ID: root_node_id}
 
             for n in nodes_doc:
+                # $ROOT$ is already bootstrapped; skip insert but register mapping
+                if n["source_id"] == self._ROOT_SOURCE_ID:
+                    if n.get("node_id"):
+                        node_id_map[n["node_id"]] = root_node_id
+                    continue
+
                 existing = self.nodes.get_by_source(conn, target_graph_id, n["source_id"])
                 if existing:
-                    node_id_map[n["node_id"]] = existing["node_id"]
+                    if n.get("node_id"):
+                        node_id_map[n["node_id"]] = existing["node_id"]
+                    source_id_map[n["source_id"]] = existing["node_id"]
                     continue
+
                 new_node_id = self.nodes.insert(
                     conn,
                     graph_id=target_graph_id,
@@ -630,11 +705,10 @@ class BanyanService:
                     node_type_id=n.get("node_type_id") or default_nt_id,
                     actor_id=actor_id,
                 )
-                txn_id = str(uuid.uuid4())
                 node_data = self.nodes.get(conn, new_node_id)
                 self.ledger.append(
                     conn,
-                    transaction_id=txn_id,
+                    transaction_id=str(uuid.uuid4()),
                     actor_id=actor_id,
                     primitive_verb="ADD_NODE",
                     source_graph_id=target_graph_id,
@@ -642,23 +716,44 @@ class BanyanService:
                     payload=node_data,
                     reversal_payload={"node_id": new_node_id},
                 )
-                node_id_map[n["node_id"]] = new_node_id
+                if n.get("node_id"):
+                    node_id_map[n["node_id"]] = new_node_id
+                source_id_map[n["source_id"]] = new_node_id
 
-            # ── Import intra-graph links ─────────────────────────────────────
+            # ── Import links ─────────────────────────────────────────────────
             for lk in links_doc:
-                new_from = node_id_map.get(lk["from_node_id"])
-                new_to = node_id_map.get(lk["to_node_id"])
+                # Resolve link type: accept link_type_id (int) or link_type_name
+                lt_id = lk.get("link_type_id")
+                if lt_id is None:
+                    lt_id = lt_name_to_id.get(lk.get("link_type_name", ""))
+                if not lt_id:
+                    continue  # unresolvable link type
+
+                # Resolve endpoints: prefer source_id (v1.1); fall back to
+                # UUID node_id_map for backward compat with v1.0 format.
+                new_from = (
+                    source_id_map.get(lk["from_source_id"])
+                    if lk.get("from_source_id")
+                    else node_id_map.get(lk.get("from_node_id", ""))
+                )
+                new_to = (
+                    source_id_map.get(lk["to_source_id"])
+                    if lk.get("to_source_id")
+                    else node_id_map.get(lk.get("to_node_id", ""))
+                )
                 if new_from is None or new_to is None:
-                    continue  # endpoint not imported (e.g. cross-graph node ref)
-                # Skip if this exact pair already exists
+                    continue  # unresolvable endpoint
+
+                # Dedup: skip if this (parent, child, link_type) already exists
                 existing_links = self.links.get_children(
-                    conn, target_graph_id, new_from, lk["link_type_id"]
+                    conn, target_graph_id, new_from, lt_id
                 )
                 if any(el["to_node_id"] == new_to for el in existing_links):
                     continue
+
                 new_link_id = self.links.insert(
                     conn,
-                    link_type_id=lk["link_type_id"],
+                    link_type_id=lt_id,
                     from_graph_id=target_graph_id,
                     to_graph_id=target_graph_id,
                     from_node_id=new_from,
@@ -666,11 +761,10 @@ class BanyanService:
                     actor_id=actor_id,
                     metadata=lk.get("metadata"),
                 )
-                txn_id = str(uuid.uuid4())
                 link_data = self.links.get(conn, new_link_id)
                 self.ledger.append(
                     conn,
-                    transaction_id=txn_id,
+                    transaction_id=str(uuid.uuid4()),
                     actor_id=actor_id,
                     primitive_verb="CREATE_LINK",
                     source_graph_id=target_graph_id,
@@ -722,8 +816,13 @@ class BanyanService:
 
         # Index links by (from source_id, to source_id, link_type_id)
         def _link_key(l: dict, nodes_by_id: dict) -> tuple | None:
-            frm = nodes_by_id.get(l["from_node_id"], {}).get("source_id")
-            to = nodes_by_id.get(l["to_node_id"], {}).get("source_id")
+            # Prefer annotated source_ids (v1.1); fall back to UUID lookup (v1.0)
+            frm = l.get("from_source_id") or nodes_by_id.get(
+                l.get("from_node_id", ""), {}
+            ).get("source_id")
+            to = l.get("to_source_id") or nodes_by_id.get(
+                l.get("to_node_id", ""), {}
+            ).get("source_id")
             if frm is None or to is None:
                 return None
             return (frm, to, l["link_type_id"])
@@ -1072,6 +1171,38 @@ class BanyanService:
     def list_snapshots(self, graph_id: str) -> list[dict]:
         with self.db.connect() as conn:
             return self.snapshots.list_by_graph(conn, graph_id)
+
+    def restore_snapshot(
+        self,
+        snapshot_id: str,
+        actor_id: str,
+        new_name: str | None = None,
+    ) -> dict:
+        """
+        Restore a snapshot by importing its stored export payload as a new graph.
+
+        The original graph is untouched.  The restored graph is a new graph
+        whose name defaults to ``"<original_name> (restored from <version_label>)"``.
+        All nodes and links from the snapshot payload are imported via
+        ``import_graph()``, with full ledger attribution.
+
+        Returns the newly created graph dict.
+        """
+        with self.db.connect() as conn:
+            snap = self.snapshots.get(conn, snapshot_id)
+        if snap is None:
+            raise KeyError(f"Snapshot '{snapshot_id}' not found.")
+        payload = snap.get("snapshot_payload")
+        if not payload:
+            raise ValueError(
+                f"Snapshot '{snapshot_id}' has no stored payload. "
+                "It may have been created before export-backed snapshots were introduced."
+            )
+        resolved_name = new_name or (
+            f"{payload.get('graph', {}).get('name', 'Graph')} "
+            f"(restored from {snap['version_label']})"
+        )
+        return self.import_graph(payload, actor_id=actor_id, new_name=resolved_name)
 
     # ── Lookup ────────────────────────────────────────────────────────────────
 
