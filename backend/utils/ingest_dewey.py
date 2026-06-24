@@ -12,17 +12,22 @@ The DDC top-level structure is public knowledge.  No external download needed.
 
 Usage
 -----
+    # Write export JSON to stdout:
     python utils/ingest_dewey.py
-    python utils/ingest_dewey.py --base-url http://localhost:9000
-    python utils/ingest_dewey.py --dry-run
+
+    # Write to a file:
+    python utils/ingest_dewey.py --output data/dewey.json
+
+    # Load into a running Banyan instance:
+    python utils/ingest_dewey.py | python utils/import_graph.py -
+    python utils/import_graph.py data/dewey.json
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-import urllib.error as _err
-import urllib.request as _req
+from datetime import datetime, timezone
 
 # ── Taxonomy data ─────────────────────────────────────────────────────────────
 # (source_id, display_name, parent_source_id | None → graph $ROOT$)
@@ -164,126 +169,76 @@ _NODES: list[tuple[str, str, str | None]] = [
 DEFAULT_GRAPH_NAME = "Dewey Decimal Classification"
 
 
-# ── HTTP helpers (identical to other ingest scripts) ─────────────────────────
+# ── Generator ─────────────────────────────────────────────────────────────────
 
-def _get(url: str) -> tuple[int, object]:
-    try:
-        with _req.urlopen(url) as r:
-            return r.status, json.loads(r.read())
-    except _err.HTTPError as e:
-        body = e.read()
-        try:
-            detail = json.loads(body).get("detail", body.decode())
-        except Exception:
-            detail = body.decode(errors="replace")
-        return e.code, {"error": detail}
-
-
-def _post(url: str, data: dict, actor_id: str = "ingest") -> tuple[int, object]:
-    body = json.dumps(data, default=str).encode()
-    req = _req.Request(
-        url, data=body, method="POST",
-        headers={"Content-Type": "application/json", "X-Actor-Id": actor_id},
-    )
-    try:
-        with _req.urlopen(req) as r:
-            return r.status, json.loads(r.read())
-    except _err.HTTPError as e:
-        body = e.read()
-        try:
-            detail = json.loads(body).get("detail", body.decode())
-        except Exception:
-            detail = body.decode(errors="replace")
-        return e.code, {"error": detail}
-
-
-def _die(status: int, data: object, context: str) -> None:
-    sys.exit(f"ERROR [{context}] HTTP {status}: {data}")
-
-
-# ── Ingest logic ──────────────────────────────────────────────────────────────
-
-def ingest(base: str, graph_name: str, actor_id: str, dry_run: bool) -> None:
-    main_classes = [n for n in _NODES if n[2] is None]
-    divisions = [n for n in _NODES if n[2] is not None]
-    print(f"Dewey Decimal Classification: {len(_NODES)} nodes "
-          f"({len(main_classes)} main classes, {len(divisions)} divisions)")
-    print("  Strict two-level hierarchy, no polyhierarchy.")
-
-    if dry_run:
-        print("[dry-run] No API calls made.")
-        return
-
-    # ── Check for name collision ──────────────────────────────────────────────
-    status, graphs = _get(f"{base}/api/v1/graphs")
-    if status != 200:
-        _die(status, graphs, "list graphs")
-    if any(g["name"] == graph_name for g in graphs):
-        sys.exit(
-            f"Graph '{graph_name}' already exists. "
-            "Use --graph-name to choose a different name."
-        )
-
-    # ── Lookup HIERARCHICAL link type ─────────────────────────────────────────
-    status, lt_list = _get(f"{base}/api/v1/link-types")
-    if status != 200:
-        _die(status, lt_list, "link-types")
-    hier_lt_id = next(
-        (lt["link_type_id"] for lt in lt_list if lt["name"] == "HIERARCHICAL"), None
-    )
-    if hier_lt_id is None:
-        sys.exit("HIERARCHICAL link type not found. Is the database bootstrapped?")
-
-    # ── Create graph ──────────────────────────────────────────────────────────
-    status, graph = _post(
-        f"{base}/api/v1/graphs",
-        {"name": graph_name,
-         "notes": "Dewey Decimal Classification — top 2 levels (10² example)"},
-        actor_id,
-    )
-    if status != 201:
-        _die(status, graph, "create graph")
-    graph_id = graph["graph_id"]
-    print(f"  Graph created: {graph_id}")
-
-    # ── Single batch: ADD_NODE then CREATE_LINK ───────────────────────────────
-    node_ops = [
-        {"verb": "ADD_NODE", "data": {"source_id": sid, "name": name}}
+def generate(graph_name: str = DEFAULT_GRAPH_NAME) -> dict:
+    """Return a Banyan v1.1 export document for the Dewey Decimal top 2 levels."""
+    nodes = [
+        {"source_id": sid, "name": name}
         for sid, name, _ in _NODES
     ]
-    link_ops = [
-        {"verb": "CREATE_LINK",
-         "data": {"from_source_id": parent_sid if parent_sid else "$ROOT$",
-                  "to_source_id": sid}}
+    links = [
+        {
+            "from_source_id": parent_sid if parent_sid else "$ROOT$",
+            "to_source_id": sid,
+            "link_type_name": "HIERARCHICAL",
+        }
         for sid, _, parent_sid in _NODES
     ]
-
-    status, result = _post(
-        f"{base}/api/v1/graphs/batch",
-        {"graph_id": graph_id, "actor_id": actor_id,
-         "default_link_type_id": hier_lt_id,
-         "node_operations": node_ops, "link_operations": link_ops},
-        actor_id,
-    )
-    if status != 200:
-        _die(status, result, "batch")
-    print(f"  Nodes added: {result['nodes_added']}  Links created: {result['links_created']}")
-    print(f"Done. Graph '{graph_name}' ingested successfully.")
+    main_classes = sum(1 for _, _, p in _NODES if p is None)
+    divisions = len(_NODES) - main_classes
+    return {
+        "banyan_export_version": "1.1",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "graph": {
+            "name": graph_name,
+            "notes": (
+                f"Dewey Decimal Classification — top 2 levels "
+                f"({main_classes} main classes, {divisions} divisions; "
+                f"strict two-level hierarchy, no polyhierarchy)"
+            ),
+        },
+        "nodes": nodes,
+        "links": links,
+        "cross_graph_links": [],
+    }
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Ingest Dewey Decimal Classification (top 2 levels) into Banyan"
+        description="Generate a Banyan export JSON for the Dewey Decimal Classification."
     )
-    p.add_argument("--base-url", default="http://localhost:8000")
-    p.add_argument("--graph-name", default=DEFAULT_GRAPH_NAME)
-    p.add_argument("--actor-id", default="ingest")
+    p.add_argument("--graph-name", default=DEFAULT_GRAPH_NAME,
+                   help="Graph name to embed in the export document")
+    p.add_argument("--output", metavar="FILE",
+                   help="Write JSON to FILE instead of stdout")
     p.add_argument("--dry-run", action="store_true",
-                   help="Print plan without making any API calls")
+                   help="Print stats only; do not write output")
     args = p.parse_args()
-    ingest(args.base_url, args.graph_name, args.actor_id, args.dry_run)
+
+    main_classes = sum(1 for _, _, p in _NODES if p is None)
+    divisions = len(_NODES) - main_classes
+    print(
+        f"Dewey Decimal Classification: {len(_NODES)} nodes "
+        f"({main_classes} main classes, {divisions} divisions; no polyhierarchy)",
+        file=sys.stderr,
+    )
+
+    if args.dry_run:
+        print("[dry-run] No output written.", file=sys.stderr)
+        return
+
+    doc = generate(args.graph_name)
+    text = json.dumps(doc, indent=2, ensure_ascii=False)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print(f"Written to {args.output}", file=sys.stderr)
+    else:
+        print(text)
 
 
 if __name__ == "__main__":
