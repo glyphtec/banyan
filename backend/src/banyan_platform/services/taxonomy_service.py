@@ -1137,6 +1137,7 @@ class BanyanService:
         graph_id: str,
         version_label: str,
         actor_id: str,
+        notes: str | None = None,
     ) -> dict:
         """
         Pin the current graph state as a named, fully-serialized snapshot.
@@ -1165,6 +1166,7 @@ class BanyanService:
                 ledger_id=latest_ledger_id,
                 actor_id=actor_id,
                 payload=export_payload,
+                notes=notes,
             )
             return self.snapshots.get(conn, snapshot_id)
 

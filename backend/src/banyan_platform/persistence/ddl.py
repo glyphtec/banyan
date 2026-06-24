@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS graph_snapshot (
     version_label     VARCHAR(100) NOT NULL,     -- e.g. 'v1.4-production', 'pre-merge-review'
     ledger_id         BIGINT NOT NULL REFERENCES banyan_ledger(ledger_id),  -- Exact ledger timeline pin
     actor_id          VARCHAR(200) NOT NULL,
+    notes             TEXT,
     -- snapshot_payload: full serialized graph state at this ledger position.
     -- Structure: { "banyan_export_version": "1.0", "graph": {...},
     --              "nodes": [...], "links": [...], "cross_graph_links": [...] }

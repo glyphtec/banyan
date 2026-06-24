@@ -5,12 +5,36 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8000/api/v1", "type": "string" },
-    { "key": "graph_id",      "value": "", "type": "string" },
-    { "key": "node_id_root",  "value": "", "type": "string" },
-    { "key": "node_id_child", "value": "", "type": "string" },
-    { "key": "link_id",       "value": "", "type": "string" },
-    { "key": "snapshot_id",   "value": "", "type": "string" }
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "graph_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "node_id_root",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "node_id_child",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "link_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "snapshot_id",
+      "value": "",
+      "type": "string"
+    }
   ],
   "item": [
     {
@@ -19,38 +43,74 @@
       "item": [
         {
           "name": "01 Create Graph",
-          "event": [{ "listen": "test", "script": { "exec": [
-            "var r = pm.response.json();",
-            "pm.collectionVariables.set('graph_id', r.graph_id);",
-            "pm.collectionVariables.set('node_id_root', r.root_node_id);",
-            "pm.test('graph_id captured', () => pm.expect(r.graph_id).to.be.a('string'));",
-            "pm.test('root_node_id auto-set', () => pm.expect(r.root_node_id).to.be.a('string'));"
-          ], "type": "text/javascript" }}],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "pm.collectionVariables.set('graph_id', r.graph_id);",
+                  "pm.collectionVariables.set('node_id_root', r.root_node_id);",
+                  "pm.test('graph_id captured', () => pm.expect(r.graph_id).to.be.a('string'));",
+                  "pm.test('root_node_id auto-set', () => pm.expect(r.root_node_id).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Product Taxonomy\",\n  \"notes\": \"Top-level product classification hierarchy\"\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs", "host": ["{{base_url}}"], "path": ["graphs"] }
+            "url": {
+              "raw": "{{base_url}}/graphs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs"
+              ]
+            }
           }
         },
         {
           "name": "02 Add Child Node",
-          "event": [{ "listen": "test", "script": { "exec": [
-            "var r = pm.response.json();",
-            "pm.collectionVariables.set('node_id_child', r.node_id);",
-            "pm.test('child node_id captured', () => pm.expect(r.node_id).to.be.a('string'));"
-          ], "type": "text/javascript" }}],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "pm.collectionVariables.set('node_id_child', r.node_id);",
+                  "pm.test('child node_id captured', () => pm.expect(r.node_id).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -58,28 +118,57 @@
             },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes"
+              ]
             }
           }
         },
         {
           "name": "03 Create HIERARCHICAL Link ($ROOT$ → child)",
-          "event": [{ "listen": "test", "script": { "exec": [
-            "var r = pm.response.json();",
-            "pm.collectionVariables.set('link_id', r.link_id);",
-            "pm.test('link_id captured', () => pm.expect(r.link_id).to.be.a('string'));"
-          ], "type": "text/javascript" }}],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "pm.collectionVariables.set('link_id', r.link_id);",
+                  "pm.test('link_id captured', () => pm.expect(r.link_id).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"link_type_id\": 1,\n  \"from_graph_id\": \"{{graph_id}}\",\n  \"to_graph_id\": \"{{graph_id}}\",\n  \"from_node_id\": \"{{node_id_root}}\",\n  \"to_node_id\": \"{{node_id_child}}\",\n  \"link_order\": 1.0\n}"
             },
-            "url": { "raw": "{{base_url}}/links", "host": ["{{base_url}}"], "path": ["links"] }
+            "url": {
+              "raw": "{{base_url}}/links",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links"
+              ]
+            }
           }
         },
         {
@@ -88,7 +177,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_root}}/subtree",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_root}}", "subtree"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_root}}",
+                "subtree"
+              ]
             }
           }
         },
@@ -98,7 +196,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_child}}/ancestors",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_child}}", "ancestors"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_child}}",
+                "ancestors"
+              ]
             }
           }
         },
@@ -108,7 +215,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_root}}/impact",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_root}}", "impact"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_root}}",
+                "impact"
+              ]
             }
           }
         },
@@ -117,8 +233,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -126,7 +248,13 @@
             },
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_child}}",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_child}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_child}}"
+              ]
             }
           }
         },
@@ -135,8 +263,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -144,7 +278,13 @@
             },
             "url": {
               "raw": "{{base_url}}/links/{{link_id}}",
-              "host": ["{{base_url}}"], "path": ["links", "{{link_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links",
+                "{{link_id}}"
+              ]
             }
           }
         },
@@ -154,30 +294,58 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/history",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "history"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "history"
+              ]
             }
           }
         },
         {
           "name": "10 Create Snapshot",
-          "event": [{ "listen": "test", "script": { "exec": [
-            "var r = pm.response.json();",
-            "pm.collectionVariables.set('snapshot_id', r.snapshot_id);",
-            "pm.test('snapshot_id captured', () => pm.expect(r.snapshot_id).to.be.a('string'));"
-          ], "type": "text/javascript" }}],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "pm.collectionVariables.set('snapshot_id', r.snapshot_id);",
+                  "pm.test('snapshot_id captured', () => pm.expect(r.snapshot_id).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version_label\": \"v1.0-review\"\n}"
+              "raw": "{\n  \"version_label\": \"v1.0-review\",\n  \"notes\": \"Pre-review baseline\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/snapshots",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "snapshots"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "snapshots"
+              ]
             }
           }
         },
@@ -187,7 +355,14 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/export",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "export"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "export"
+              ]
             }
           }
         },
@@ -195,12 +370,26 @@
           "name": "12 Diff Graph vs Snapshot",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"base\": \"snapshot:{{snapshot_id}}\",\n  \"compare\": \"{{graph_id}}\"\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs/diff", "host": ["{{base_url}}"], "path": ["graphs", "diff"] }
+            "url": {
+              "raw": "{{base_url}}/graphs/diff",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "diff"
+              ]
+            }
           }
         },
         {
@@ -208,14 +397,74 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"graph_id\": \"{{graph_id}}\",\n  \"operations\": [\n    {\n      \"verb\": \"ADD_NODE\",\n      \"data\": {\n        \"source_id\": \"SMARTPHONES\",\n        \"name\": \"Smartphones\",\n        \"notes\": \"Mobile handsets\"\n      }\n    },\n    {\n      \"verb\": \"CREATE_LINK\",\n      \"data\": {\n        \"from_source_id\": \"ELECTRONICS\",\n        \"to_source_id\": \"SMARTPHONES\",\n        \"link_type_id\": 1,\n        \"link_order\": 1.0\n      }\n    }\n  ]\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs/batch", "host": ["{{base_url}}"], "path": ["graphs", "batch"] }
+            "url": {
+              "raw": "{{base_url}}/graphs/batch",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "batch"
+              ]
+            }
+          }
+        },
+        {
+          "name": "14 Restore Snapshot",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('new graph_id returned', () => pm.expect(r.graph_id).to.be.a('string'));",
+                  "pm.test('name is Restored Graph', () => pm.expect(r.name).to.equal('Restored Graph'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_name\": \"Restored Graph\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/snapshots/{{snapshot_id}}/restore",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "snapshots",
+                "{{snapshot_id}}",
+                "restore"
+              ]
+            }
           }
         }
       ]
@@ -228,18 +477,43 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My Taxonomy\",\n  \"notes\": \"Optional description\"\n}" },
-            "url": { "raw": "{{base_url}}/graphs", "host": ["{{base_url}}"], "path": ["graphs"] }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Taxonomy\",\n  \"notes\": \"Optional description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/graphs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs"
+              ]
+            }
           }
         },
         {
           "name": "List Graphs",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/graphs", "host": ["{{base_url}}"], "path": ["graphs"] }
+            "url": {
+              "raw": "{{base_url}}/graphs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs"
+              ]
+            }
           }
         },
         {
@@ -248,7 +522,13 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}"
+              ]
             }
           }
         },
@@ -257,13 +537,28 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My Taxonomy (revised)\",\n  \"notes\": \"Updated notes\"\n}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Taxonomy (revised)\",\n  \"notes\": \"Updated notes\"\n}"
+            },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}"
+              ]
             }
           }
         },
@@ -271,10 +566,21 @@
           "name": "Delete Graph",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "X-Actor-Id", "value": "postman-user" }],
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}"
+              ]
             }
           }
         },
@@ -284,8 +590,20 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/export?include_cross_graph_links=false",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "export"],
-              "query": [{ "key": "include_cross_graph_links", "value": "false" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "include_cross_graph_links",
+                  "value": "false"
+                }
+              ]
             }
           }
         },
@@ -294,26 +612,55 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"export_doc\": {},\n  \"new_name\": \"Imported Taxonomy\"\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs/import", "host": ["{{base_url}}"], "path": ["graphs", "import"] }
+            "url": {
+              "raw": "{{base_url}}/graphs/import",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "import"
+              ]
+            }
           }
         },
         {
           "name": "Diff Graphs",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"base\": \"{{graph_id}}\",\n  \"compare\": \"{{graph_id}}\"\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs/diff", "host": ["{{base_url}}"], "path": ["graphs", "diff"] }
+            "url": {
+              "raw": "{{base_url}}/graphs/diff",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "diff"
+              ]
+            }
           }
         },
         {
@@ -321,14 +668,29 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"graph_id\": \"{{graph_id}}\",\n  \"operations\": [\n    { \"verb\": \"ADD_NODE\",    \"data\": { \"source_id\": \"NEW-001\", \"name\": \"New Concept\" } },\n    { \"verb\": \"UPDATE_NODE\", \"data\": { \"source_id\": \"NEW-001\", \"name\": \"New Concept (updated)\" } }\n  ]\n}"
             },
-            "url": { "raw": "{{base_url}}/graphs/batch", "host": ["{{base_url}}"], "path": ["graphs", "batch"] }
+            "url": {
+              "raw": "{{base_url}}/graphs/batch",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "batch"
+              ]
+            }
           }
         },
         {
@@ -337,7 +699,14 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/history",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "history"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "history"
+              ]
             }
           }
         }
@@ -351,8 +720,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -360,7 +735,14 @@
             },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes"
+              ]
             }
           }
         },
@@ -370,7 +752,14 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes"
+              ]
             }
           }
         },
@@ -380,7 +769,13 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_root}}",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_root}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_root}}"
+              ]
             }
           }
         },
@@ -389,13 +784,28 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\",\n  \"notes\": \"Updated notes\",\n  \"metadata\": { \"key\": \"value\" }\n}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Name\",\n  \"notes\": \"Updated notes\",\n  \"metadata\": { \"key\": \"value\" }\n}"
+            },
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_root}}",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_root}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_root}}"
+              ]
             }
           }
         },
@@ -403,11 +813,27 @@
           "name": "Delete Node (safe)",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "X-Actor-Id", "value": "postman-user" }],
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_child}}?force=false",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_child}}"],
-              "query": [{ "key": "force", "value": "false" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_child}}"
+              ],
+              "query": [
+                {
+                  "key": "force",
+                  "value": "false"
+                }
+              ]
             }
           }
         },
@@ -415,11 +841,27 @@
           "name": "Delete Node (force)",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "X-Actor-Id", "value": "postman-user" }],
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_child}}?force=true",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_child}}"],
-              "query": [{ "key": "force", "value": "true" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_child}}"
+              ],
+              "query": [
+                {
+                  "key": "force",
+                  "value": "true"
+                }
+              ]
             }
           }
         }
@@ -433,14 +875,28 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"link_type_id\": 1,\n  \"from_graph_id\": \"{{graph_id}}\",\n  \"to_graph_id\": \"{{graph_id}}\",\n  \"from_node_id\": \"{{node_id_root}}\",\n  \"to_node_id\": \"{{node_id_child}}\",\n  \"link_order\": 1.0,\n  \"metadata\": {},\n  \"valid_from_datetime\": null,\n  \"valid_until_datetime\": null\n}"
             },
-            "url": { "raw": "{{base_url}}/links", "host": ["{{base_url}}"], "path": ["links"] }
+            "url": {
+              "raw": "{{base_url}}/links",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links"
+              ]
+            }
           }
         },
         {
@@ -449,7 +905,13 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/links/{{link_id}}",
-              "host": ["{{base_url}}"], "path": ["links", "{{link_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links",
+                "{{link_id}}"
+              ]
             }
           }
         },
@@ -458,8 +920,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -467,7 +935,13 @@
             },
             "url": {
               "raw": "{{base_url}}/links/{{link_id}}",
-              "host": ["{{base_url}}"], "path": ["links", "{{link_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links",
+                "{{link_id}}"
+              ]
             }
           }
         },
@@ -475,10 +949,21 @@
           "name": "Destroy Link",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "X-Actor-Id", "value": "postman-user" }],
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/links/{{link_id}}",
-              "host": ["{{base_url}}"], "path": ["links", "{{link_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links",
+                "{{link_id}}"
+              ]
             }
           }
         }
@@ -493,7 +978,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_root}}/subtree",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_root}}", "subtree"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_root}}",
+                "subtree"
+              ]
             }
           }
         },
@@ -503,7 +997,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_child}}/ancestors",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_child}}", "ancestors"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_child}}",
+                "ancestors"
+              ]
             }
           }
         },
@@ -513,7 +1016,16 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/nodes/{{node_id_root}}/impact",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "nodes", "{{node_id_root}}", "impact"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "nodes",
+                "{{node_id_root}}",
+                "impact"
+              ]
             }
           }
         }
@@ -527,13 +1039,29 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"version_label\": \"v1.0\"\n}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version_label\": \"v1.0\",\n  \"notes\": \"Baseline before review cycle\"\n}"
+            },
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/snapshots",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "snapshots"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "snapshots"
+              ]
             }
           }
         },
@@ -543,8 +1071,47 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/{{graph_id}}/snapshots",
-              "host": ["{{base_url}}"], "path": ["graphs", "{{graph_id}}", "snapshots"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "{{graph_id}}",
+                "snapshots"
+              ]
             }
+          }
+        },
+        {
+          "name": "Restore Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_name\": \"Restored Graph\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/snapshots/{{snapshot_id}}/restore",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "snapshots",
+                "{{snapshot_id}}",
+                "restore"
+              ]
+            },
+            "description": "Restore a snapshot as a new graph. The original graph is untouched. Returns the new graph dict."
           }
         }
       ]
@@ -556,14 +1123,30 @@
           "name": "Get Link Types",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/link-types", "host": ["{{base_url}}"], "path": ["link-types"] }
+            "url": {
+              "raw": "{{base_url}}/link-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "link-types"
+              ]
+            }
           }
         },
         {
           "name": "Get Node Types",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/node-types", "host": ["{{base_url}}"], "path": ["node-types"] }
+            "url": {
+              "raw": "{{base_url}}/node-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "node-types"
+              ]
+            }
           }
         }
       ]
@@ -578,7 +1161,13 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/graphs/00000000-0000-0000-0000-000000000000",
-              "host": ["{{base_url}}"], "path": ["graphs", "00000000-0000-0000-0000-000000000000"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "00000000-0000-0000-0000-000000000000"
+              ]
             }
           }
         },
@@ -586,11 +1175,27 @@
           "name": "Delete Node — blocked by links (expect 409)",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "X-Actor-Id", "value": "postman-user" }],
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/nodes/{{node_id_root}}?force=false",
-              "host": ["{{base_url}}"], "path": ["nodes", "{{node_id_root}}"],
-              "query": [{ "key": "force", "value": "false" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "nodes",
+                "{{node_id_root}}"
+              ],
+              "query": [
+                {
+                  "key": "force",
+                  "value": "false"
+                }
+              ]
             }
           }
         },
@@ -599,14 +1204,28 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"link_type_id\": 1,\n  \"from_graph_id\": \"{{graph_id}}\",\n  \"to_graph_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"from_node_id\": \"{{node_id_root}}\",\n  \"to_node_id\": \"{{node_id_child}}\",\n  \"link_order\": 1.0\n}"
             },
-            "url": { "raw": "{{base_url}}/links", "host": ["{{base_url}}"], "path": ["links"] }
+            "url": {
+              "raw": "{{base_url}}/links",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "links"
+              ]
+            }
           }
         },
         {
@@ -614,13 +1233,29 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Actor-Id",   "value": "postman-user" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": "postman-user"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"version_label\": \"premature\"\n}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version_label\": \"premature\"\n}"
+            },
             "url": {
               "raw": "{{base_url}}/graphs/00000000-0000-0000-0000-000000000000/snapshots",
-              "host": ["{{base_url}}"], "path": ["graphs", "00000000-0000-0000-0000-000000000000", "snapshots"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "graphs",
+                "00000000-0000-0000-0000-000000000000",
+                "snapshots"
+              ]
             }
           }
         }
