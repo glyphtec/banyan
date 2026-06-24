@@ -35,16 +35,17 @@ class SnapshotDAO:
         ledger_id: int,
         actor_id: str,
         payload: dict | None = None,
+        notes: str | None = None,
     ) -> str:
         snapshot_id = str(uuid.uuid4())
         p = self.db.placeholder
         conn.execute(
             f"""
             INSERT INTO graph_snapshot
-                (snapshot_id, graph_id, version_label, ledger_id, actor_id, snapshot_payload)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p})
+                (snapshot_id, graph_id, version_label, ledger_id, actor_id, notes, snapshot_payload)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p})
             """,
-            [snapshot_id, graph_id, version_label, ledger_id, actor_id,
+            [snapshot_id, graph_id, version_label, ledger_id, actor_id, notes,
              json.dumps(payload or {}, cls=_IsoEncoder)],
         )
         return snapshot_id

@@ -109,6 +109,7 @@ class LinkResponse(BaseModel):
 
 class SnapshotCreate(BaseModel):
     version_label: str
+    notes: str | None = None
 
 class SnapshotRestoreRequest(BaseModel):
     new_name: str | None = None
@@ -121,6 +122,7 @@ class SnapshotHeaderResponse(BaseModel):
     version_label: str
     ledger_id: int
     actor_id: str
+    notes: str | None = None
     inserted_datetime: Any = None
 
 
@@ -366,6 +368,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
                 graph_id=graph_id,
                 version_label=payload.version_label,
                 actor_id=actor_id,
+                notes=payload.notes,
             )
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
