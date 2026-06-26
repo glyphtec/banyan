@@ -71,7 +71,7 @@ def test_export_cross_graph_links_excluded_by_default(service):
 
 def test_export_unknown_graph_raises(service):
     with pytest.raises(KeyError):
-        service.export_graph("00000000-0000-0000-0000-000000000000")
+        service.export_graph("ffffffff-ffff-ffff-ffff-ffffffffffff")
 
 
 # ---------------------------------------------------------------------------

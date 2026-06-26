@@ -34,7 +34,7 @@ class NodeDAO:
         self,
         conn,
         graph_id: str,
-        node_type_id: int,
+        node_type_id: str,
         source_id: str,
         name: str,
         notes: str | None = None,
@@ -90,7 +90,7 @@ class NodeDAO:
         notes: str | None = None,
         source_id: str | None = None,
         metadata: dict | None = None,
-        node_type_id: int | None = None,
+        node_type_id: str | None = None,
         actor_id: str | None = None,
     ) -> None:
         fields, values = [], []

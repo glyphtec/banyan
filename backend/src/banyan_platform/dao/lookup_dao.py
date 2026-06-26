@@ -36,16 +36,16 @@ class LookupDAO:
     def get_link_types(self, conn) -> list[dict]:
         return _all_rows(conn.execute(
             "SELECT link_type_id, parent_link_type_id, name, notes "
-            "FROM link_type ORDER BY link_type_id"
+            "FROM link_type ORDER BY name"
         ))
 
-    def get_link_type(self, conn, link_type_id: int) -> dict | None:
+    def get_link_type(self, conn, link_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(
             f"SELECT * FROM link_type WHERE link_type_id = {p}", [link_type_id]
         ))
 
-    def get_link_type_root_family(self, conn, link_type_id: int) -> str | None:
+    def get_link_type_root_family(self, conn, link_type_id: str) -> str | None:
         """
         Walk the parent_link_type_id chain and return the root family name.
 
@@ -74,10 +74,10 @@ class LookupDAO:
 
     def get_node_types(self, conn) -> list[dict]:
         return _all_rows(conn.execute(
-            "SELECT node_type_id, name, notes FROM node_type ORDER BY node_type_id"
+            "SELECT node_type_id, name, notes FROM node_type ORDER BY name"
         ))
 
-    def get_node_type(self, conn, node_type_id: int) -> dict | None:
+    def get_node_type(self, conn, node_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(
             f"SELECT * FROM node_type WHERE node_type_id = {p}", [node_type_id]

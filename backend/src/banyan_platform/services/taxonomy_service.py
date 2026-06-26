@@ -50,13 +50,13 @@ class BanyanService:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _resolve_node_type_id(self, conn, node_type_id: int | None) -> int:
+    def _resolve_node_type_id(self, conn, node_type_id: str | None) -> str:
         if node_type_id is not None:
             return node_type_id
         nt = self.lookup.get_node_type_by_name(conn, "Generic")
         if nt is None:
             raise RuntimeError("Default node type 'Generic' not found. Run bootstrap() first.")
-        return int(nt["node_type_id"])
+        return nt["node_type_id"]
 
     # ── Graph operations (no ledger) ──────────────────────────────────────────
 
@@ -67,7 +67,7 @@ class BanyanService:
         name: str,
         actor_id: str,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
     ) -> dict:
         """
         Create a graph and atomically bootstrap its mandatory root node.
@@ -123,7 +123,7 @@ class BanyanService:
         actor_id: str,
         name: str | None = None,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
     ) -> dict:
         with self.db.connect() as conn:
             if self.graphs.get(conn, graph_id) is None:
@@ -210,7 +210,7 @@ class BanyanService:
         actor_id: str,
         notes: str | None = None,
         metadata: dict | None = None,
-        node_type_id: int | None = None,
+        node_type_id: str | None = None,
     ) -> dict:
         txn_id = str(uuid.uuid4())
         with self.db.connect() as conn:
@@ -359,7 +359,7 @@ class BanyanService:
 
     def create_link(
         self,
-        link_type_id: int,
+        link_type_id: str,
         from_graph_id: str,
         to_graph_id: str,
         from_node_id: str,
@@ -472,13 +472,13 @@ class BanyanService:
             self.links.delete(conn, link_id)
 
     def get_children(
-        self, graph_id: str, from_node_id: str, link_type_id: int | None = None
+        self, graph_id: str, from_node_id: str, link_type_id: str | None = None
     ) -> list[dict]:
         with self.db.connect() as conn:
             return self.links.get_children(conn, graph_id, from_node_id, link_type_id)
 
     def get_parents(
-        self, graph_id: str, to_node_id: str, link_type_id: int | None = None
+        self, graph_id: str, to_node_id: str, link_type_id: str | None = None
     ) -> list[dict]:
         with self.db.connect() as conn:
             return self.links.get_parents(conn, graph_id, to_node_id, link_type_id)
@@ -489,7 +489,7 @@ class BanyanService:
         self,
         graph_id: str,
         root_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         with self.db.connect() as conn:
             return self.traversal.get_subtree(conn, graph_id, root_node_id, link_type_id)
@@ -498,7 +498,7 @@ class BanyanService:
         self,
         graph_id: str,
         node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         with self.db.connect() as conn:
             return self.traversal.get_ancestors(conn, graph_id, node_id, link_type_id)
@@ -669,8 +669,8 @@ class BanyanService:
 
             # ── Pre-load lookup tables ───────────────────────────────────────
             default_node_type = self.lookup.get_node_type_by_name(conn, "Generic")
-            default_nt_id = int(default_node_type["node_type_id"])
-            lt_name_to_id: dict[str, int] = {
+            default_nt_id = default_node_type["node_type_id"]
+            lt_name_to_id: dict[str, str] = {
                 lt["name"]: lt["link_type_id"]
                 for lt in self.lookup.get_link_types(conn)
             }
@@ -919,7 +919,7 @@ class BanyanService:
         """
         graph_id: str = batch["graph_id"]
         effective_actor = actor_id or batch.get("actor_id", "batch-anonymous")
-        default_lt_id: int | None = batch.get("default_link_type_id")
+        default_lt_id: str | None = batch.get("default_link_type_id")
         node_ops: list[dict] = batch.get("node_operations", [])
         link_ops: list[dict] = batch.get("link_operations", [])
 
@@ -935,7 +935,7 @@ class BanyanService:
                         links_created=0, links_updated=0, links_destroyed=0,
                         ledger_entries=0)
 
-        default_nt_id: int | None = None
+        default_nt_id: str | None = None
 
         with self.db.connect() as conn:
             if self.graphs.get(conn, graph_id) is None:
@@ -950,7 +950,7 @@ class BanyanService:
                 if verb == "ADD_NODE":
                     if default_nt_id is None:
                         nt = self.lookup.get_node_type_by_name(conn, "Generic")
-                        default_nt_id = int(nt["node_type_id"])
+                        default_nt_id = nt["node_type_id"]
                     node_id = self.nodes.insert(
                         conn,
                         graph_id=graph_id,

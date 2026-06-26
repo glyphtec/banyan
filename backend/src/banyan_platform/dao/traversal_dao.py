@@ -41,7 +41,7 @@ class TraversalDAO:
         conn,
         graph_id: str,
         root_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """
         Return *root_node_id* and all its descendants within *graph_id*.
@@ -91,7 +91,7 @@ class TraversalDAO:
         conn,
         graph_id: str,
         node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """
         Return all ancestors of *node_id* within *graph_id*, excluding the node itself.

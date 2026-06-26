@@ -15,9 +15,6 @@ BANYAN_DDL = """
 -- PostgreSQL also supports CREATE SEQUENCE IF NOT EXISTS / nextval().
 -- ============================================================================
 
-CREATE SEQUENCE IF NOT EXISTS seq_node_type_id  START 1;
-CREATE SEQUENCE IF NOT EXISTS seq_link_type_id  START 1;
-CREATE SEQUENCE IF NOT EXISTS seq_topology_id   START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_ledger_id     START 1;
 
 -- ============================================================================
@@ -25,15 +22,15 @@ CREATE SEQUENCE IF NOT EXISTS seq_ledger_id     START 1;
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS node_type (
-    node_type_id  INTEGER PRIMARY KEY DEFAULT nextval('seq_node_type_id'),
+    node_type_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name          VARCHAR(100) NOT NULL,
     notes         TEXT,
     CONSTRAINT uq_node_type_name UNIQUE (name)
 );
 
 CREATE TABLE IF NOT EXISTS link_type (
-    link_type_id        INTEGER PRIMARY KEY DEFAULT nextval('seq_link_type_id'),
-    parent_link_type_id INTEGER REFERENCES link_type(link_type_id),
+    link_type_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_link_type_id UUID REFERENCES link_type(link_type_id),
     name                VARCHAR(100) NOT NULL,
     notes               TEXT,
     -- Optional JSON Schema document constraining the metadata attribute on
@@ -46,7 +43,7 @@ CREATE TABLE IF NOT EXISTS link_type (
 );
 
 CREATE TABLE IF NOT EXISTS graph_topology (
-    topology_id         INTEGER PRIMARY KEY DEFAULT nextval('seq_topology_id'),
+    topology_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name                VARCHAR(100) NOT NULL,
     notes               TEXT,
     -- Constraint flags.  Enforcement lives in the service layer.
@@ -63,7 +60,7 @@ CREATE TABLE IF NOT EXISTS graph (
     graph_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name              VARCHAR(200) NOT NULL,
     notes             TEXT,
-    topology_id       INTEGER REFERENCES graph_topology(topology_id),
+    topology_id       UUID REFERENCES graph_topology(topology_id),
     root_node_id      UUID,                      -- Back-populated after root node creation
     inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_datetime  TIMESTAMPTZ,
@@ -79,7 +76,7 @@ CREATE TABLE IF NOT EXISTS node (
     -- from_node_id / to_node_id on the link table).
     -- Referential integrity is enforced in the service layer.
     graph_id          UUID NOT NULL,
-    node_type_id      INTEGER NOT NULL REFERENCES node_type(node_type_id),
+    node_type_id      UUID NOT NULL REFERENCES node_type(node_type_id),
     source_id         VARCHAR(200) NOT NULL,     -- External business key / SKU / code
     name              VARCHAR(200) NOT NULL,
     notes             TEXT,
@@ -94,7 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_node_graph ON node(graph_id);
 
 CREATE TABLE IF NOT EXISTS link (
     link_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    link_type_id         INTEGER NOT NULL REFERENCES link_type(link_type_id),
+    link_type_id         UUID NOT NULL REFERENCES link_type(link_type_id),
     -- NOTE: from_graph_id / to_graph_id carry no FK constraints.
     -- DuckDB fires FK violations on UPDATE of the referenced table even when
     -- the PK column is unchanged.  Service layer enforces graph existence.
@@ -131,10 +128,21 @@ CREATE TABLE IF NOT EXISTS banyan_ledger (
     actor_id          VARCHAR(200) NOT NULL,     -- Authenticated user or system process identifier
     -- Primitive verbs:
     --   ADD_NODE | UPDATE_NODE | DELETE_NODE | CREATE_LINK | UPDATE_LINK | DESTROY_LINK
+    -- Primitive verbs for nodes/links:
+    --   ADD_NODE | UPDATE_NODE | DELETE_NODE | CREATE_LINK | UPDATE_LINK | DESTROY_LINK
+    -- Primitive verbs for meta/definitional objects (system-scope):
+    --   CREATE_NODE_TYPE | UPDATE_NODE_TYPE | DELETE_NODE_TYPE
+    --   CREATE_LINK_TYPE | UPDATE_LINK_TYPE | DELETE_LINK_TYPE
+    --   CREATE_TOPOLOGY  | UPDATE_TOPOLOGY  | DELETE_TOPOLOGY
+    --   CREATE_STAKEHOLDER | UPDATE_STAKEHOLDER | DELETE_STAKEHOLDER
     primitive_verb    VARCHAR(50) NOT NULL,
-    source_graph_id   UUID NOT NULL,                    -- Graph context; no FK so the ledger survives graph deletion
+    -- source_graph_id: graph context for node/link operations.
+    -- NULL for system-scope definitional object mutations (node_type, link_type,
+    -- graph_topology, stakeholder).  Use the __system__ sentinel graph
+    -- (00000000-0000-0000-0000-000000000000) when a non-null value is required.
+    source_graph_id   UUID,                             -- Graph context; no FK so the ledger survives graph deletion
     target_graph_id   UUID,                             -- Populated for cross-graph link operations
-    entity_id         UUID NOT NULL,             -- The Node UUID or Link UUID acted upon
+    entity_id         UUID NOT NULL,             -- The Node UUID, Link UUID, or meta-object UUID acted upon
     payload           JSON NOT NULL,             -- Forward mutation delta (state after)
     reversal_payload  JSON NOT NULL,             -- Full prior state required to invert this entry (UNDO)
     reverses_ledger_id BIGINT REFERENCES banyan_ledger(ledger_id), -- Back-pointer set when this entry is a compensating UNDO
@@ -180,6 +188,18 @@ ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO node_type (name, notes) VALUES
     ('Generic', 'General-purpose node type. Refine with domain-specific types as needed.')
+ON CONFLICT (name) DO NOTHING;
+
+-- Sentinel graph for system-scope ledger entries.
+-- Meta-object mutations (node_type, link_type, graph_topology, stakeholder) set
+-- source_graph_id to this well-known UUID rather than NULL.
+INSERT INTO graph (graph_id, name, notes, updated_by)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    '__system__',
+    'Sentinel graph for system-scope ledger entries (node_type, link_type, graph_topology, stakeholder mutations). Not a real graph.',
+    'system'
+)
 ON CONFLICT (name) DO NOTHING;
 """
 

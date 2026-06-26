@@ -25,19 +25,19 @@ def get_actor(x_actor_id: str = Header(default="anonymous")) -> str:
 class GraphCreate(BaseModel):
     name: str
     notes: str | None = None
-    topology_id: int | None = None
+    topology_id: str | None = None
 
 class GraphUpdate(BaseModel):
     name: str | None = None
     notes: str | None = None
-    topology_id: int | None = None
+    topology_id: str | None = None
 
 class GraphResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     graph_id: str
     name: str
     notes: str | None = None
-    topology_id: int | None = None
+    topology_id: str | None = None
     root_node_id: str | None = None
     inserted_datetime: Any = None
     updated_datetime: Any = None
@@ -49,7 +49,7 @@ class NodeCreate(BaseModel):
     name: str
     notes: str | None = None
     metadata: dict = {}
-    node_type_id: int | None = None
+    node_type_id: str | None = None
 
 class NodeUpdate(BaseModel):
     name: str | None = None
@@ -61,7 +61,7 @@ class NodeResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     node_id: str
     graph_id: str
-    node_type_id: int
+    node_type_id: str
     source_id: str
     name: str
     notes: str | None = None
@@ -72,7 +72,7 @@ class NodeResponse(BaseModel):
 
 
 class LinkCreate(BaseModel):
-    link_type_id: int
+    link_type_id: str
     from_graph_id: str
     to_graph_id: str
     from_node_id: str
@@ -92,7 +92,7 @@ class LinkUpdate(BaseModel):
 class LinkResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     link_id: str
-    link_type_id: int
+    link_type_id: str
     from_graph_id: str
     to_graph_id: str
     from_node_id: str
@@ -169,7 +169,7 @@ class BatchLinkOperation(BaseModel):
 class BatchRequest(BaseModel):
     graph_id: str
     actor_id: str | None = None
-    default_link_type_id: int | None = None
+    default_link_type_id: str | None = None
     node_operations: list[BatchNodeOperation] = []
     link_operations: list[BatchLinkOperation] = []
 
@@ -354,7 +354,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     def get_subtree(
         graph_id: str,
         node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ):
         return service.get_subtree(graph_id, node_id, link_type_id)
 
@@ -362,7 +362,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     def get_ancestors(
         graph_id: str,
         node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ):
         return service.get_ancestors(graph_id, node_id, link_type_id)
 

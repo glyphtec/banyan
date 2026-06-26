@@ -52,6 +52,19 @@ class LedgerDAO:
         "CREATE_LINK",
         "UPDATE_LINK",
         "DESTROY_LINK",
+        # Meta/definitional object verbs (system-scope, source_graph_id = __system__ sentinel):
+        "CREATE_NODE_TYPE",
+        "UPDATE_NODE_TYPE",
+        "DELETE_NODE_TYPE",
+        "CREATE_LINK_TYPE",
+        "UPDATE_LINK_TYPE",
+        "DELETE_LINK_TYPE",
+        "CREATE_TOPOLOGY",
+        "UPDATE_TOPOLOGY",
+        "DELETE_TOPOLOGY",
+        "CREATE_STAKEHOLDER",
+        "UPDATE_STAKEHOLDER",
+        "DELETE_STAKEHOLDER",
     })
 
     def __init__(self, db: Database) -> None:
