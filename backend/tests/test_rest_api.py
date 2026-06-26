@@ -171,3 +171,18 @@ def test_undo_missing_returns_404(client):
     r = client.post("/api/v1/ledger/999999/undo", headers=HEADERS)
     assert r.status_code == 404
 
+
+def test_verify_ledger_chain_clean(client):
+    # Perform a few mutations so the chain has entries to verify.
+    g = client.post("/api/v1/graphs", json={"name": "ChainTest"}, headers=HEADERS).json()
+    gid = g["graph_id"]
+    client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "N1", "name": "Node1"}, headers=HEADERS)
+    client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "N2", "name": "Node2"}, headers=HEADERS)
+    r = client.get("/api/v1/ledger/verify-chain")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["entries_checked"] >= 3  # at least root + 2 nodes
+

@@ -428,6 +428,11 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     ):
         return service.get_graph_history(graph_id, since_ledger_id)
 
+    @router.get("/ledger/verify-chain")
+    def verify_ledger_chain():
+        """Re-compute and verify the global ledger hash chain integrity."""
+        return service.verify_ledger_chain()
+
     @router.post("/ledger/{ledger_id}/undo", response_model=LedgerEntryResponse, status_code=201)
     def undo_ledger_entry(
         ledger_id: int,
