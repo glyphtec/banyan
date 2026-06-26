@@ -355,6 +355,44 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         """Return all available node types with their IDs."""
         return service.get_node_types()
 
+    # ── Actor registry tools ───────────────────────────────────────────────
+
+    @mcp.tool
+    def get_actors() -> list[dict]:
+        """
+        Return all registered actors ordered by type then handle.
+        Includes seeded system actors (system:bootstrap, system:ingest,
+        system:mcp-agent, anonymous) and any registered human actors.
+        """
+        return service.get_actors()
+
+    @mcp.tool
+    def get_actor(handle: str) -> dict | None:
+        """Return a single actor by handle, or None if not registered."""
+        return service.get_actor_by_handle(handle)
+
+    @mcp.tool
+    def register_actor(
+        handle: str,
+        display_name: str,
+        actor_type: str = "HUMAN",
+        org: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        """
+        Register a new actor in the identity registry.
+
+        handle       — stable identifier used in actor_id / updated_by columns
+                       (e.g. 'human:jane.smith', 'agent:crosswalk-bot')
+        display_name — human-readable label
+        actor_type   — SYSTEM | HUMAN | AGENT
+        org          — optional organisation affiliation
+        """
+        return service.register_actor(
+            handle=handle, display_name=display_name,
+            actor_type=actor_type, org=org, notes=notes,
+        )
+
     # ── History tools ──────────────────────────────────────────────────────
 
     @mcp.tool

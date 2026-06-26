@@ -38,3 +38,18 @@ def test_banyan_ledger_has_hash_chain_columns(db):
     assert "previous_hash" in cols
     assert "entry_hash" in cols
 
+
+def test_banyan_actor_table_exists_and_is_seeded(db):
+    with db.connect() as conn:
+        names = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        assert "banyan_actor" in names
+        handles = {r[0] for r in conn.execute("SELECT handle FROM banyan_actor").fetchall()}
+    assert {"system:bootstrap", "system:ingest", "system:mcp-agent", "anonymous"}.issubset(handles)
+
+
+def test_bootstrap_is_idempotent_with_actors(db):
+    from banyan_platform.persistence.ddl import bootstrap
+    bootstrap(db)  # second run
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM banyan_actor").fetchone()[0] == 4
+

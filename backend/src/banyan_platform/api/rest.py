@@ -131,6 +131,15 @@ class SnapshotResponse(SnapshotHeaderResponse):
     snapshot_payload: dict = {}
 
 
+class ActorRegister(BaseModel):
+    handle: str
+    display_name: str
+    actor_type: str = "HUMAN"
+    org: str | None = None
+    notes: str | None = None
+    snapshot_payload: dict = {}
+
+
 class LedgerEntryResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     ledger_id: int
@@ -418,6 +427,32 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     @router.get("/node-types")
     def get_node_types():
         return service.get_node_types()
+
+    # -- Actor registry --------------------------------------------------------
+
+    @router.get("/actors")
+    def list_actors():
+        return service.get_actors()
+
+    @router.get("/actors/{handle}")
+    def get_actor_by_handle(handle: str):
+        actor = service.get_actor_by_handle(handle)
+        if actor is None:
+            raise HTTPException(status_code=404, detail=f"Actor '{handle}' not found")
+        return actor
+
+    @router.post("/actors", status_code=201)
+    def register_actor(body: ActorRegister):
+        try:
+            return service.register_actor(
+                handle=body.handle,
+                display_name=body.display_name,
+                actor_type=body.actor_type,
+                org=body.org,
+                notes=body.notes,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
     # -- History / Undo --------------------------------------------------------
 

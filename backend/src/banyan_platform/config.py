@@ -15,3 +15,8 @@ class DatabaseConfig:
     # Admin API: exposes GET /admin/query for ad-hoc SQL.
     # NEVER enable in production. Set BANYAN_ADMIN_API=true in .env for local dev.
     enable_admin_api: bool = os.getenv("BANYAN_ADMIN_API", "false").lower() == "true"
+    # Actor validation mode.
+    # False (default): any actor handle passes through — unknown actors are not rejected.
+    # True: actor handle must exist in banyan_actor; raise ValueError on unknown handles.
+    # Keep False during POC/development; harden to True before production deployment.
+    strict_actor_validation: bool = os.getenv("BANYAN_STRICT_ACTORS", "false").lower() == "true"
