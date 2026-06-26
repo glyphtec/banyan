@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 # Actor identity default for MCP callers.
 # Agents should pass actor_id explicitly so the ledger records their identity.
 # ---------------------------------------------------------------------------
-_MCP_DEFAULT_ACTOR = "mcp-agent"
+_MCP_DEFAULT_ACTOR = "system:mcp-agent"
 
 
 def build_mcp_server(service: BanyanService) -> FastMCP:
