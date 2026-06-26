@@ -124,7 +124,10 @@ def test_get_link_types(client):
     r = client.get("/api/v1/link-types")
     assert r.status_code == 200
     names = {lt["name"] for lt in r.json()}
-    assert names == {"HIERARCHICAL", "RELATED", "SYNONYM"}
+    # Root families
+    assert {"HIERARCHICAL", "RELATED", "SYNONYM"}.issubset(names)
+    # RELATED sub-types
+    assert {"SAME_AS", "TERM_EQUIVALENT", "TERM_SIMILAR", "TERM_VARIANT"}.issubset(names)
 
 
 def test_get_node_types(client):
