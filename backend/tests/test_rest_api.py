@@ -186,3 +186,35 @@ def test_verify_ledger_chain_clean(client):
     assert body["ok"] is True
     assert body["entries_checked"] >= 3  # at least root + 2 nodes
 
+
+# ── Actor registry endpoints ──────────────────────────────────────────────────
+
+def test_list_actors_includes_system_seeds(client):
+    r = client.get("/api/v1/actors")
+    assert r.status_code == 200
+    handles = {a["handle"] for a in r.json()}
+    assert {"system:bootstrap", "system:ingest", "system:mcp-agent", "anonymous"}.issubset(handles)
+
+
+def test_register_and_get_actor(client):
+    payload = {"handle": "human:test.user", "display_name": "Test User", "actor_type": "HUMAN"}
+    r = client.post("/api/v1/actors", json=payload)
+    assert r.status_code == 201
+    assert r.json()["handle"] == "human:test.user"
+
+    r2 = client.get("/api/v1/actors/human:test.user")
+    assert r2.status_code == 200
+    assert r2.json()["display_name"] == "Test User"
+
+
+def test_get_actor_not_found(client):
+    r = client.get("/api/v1/actors/nobody:unknown")
+    assert r.status_code == 404
+
+
+def test_register_duplicate_actor_returns_409(client):
+    payload = {"handle": "human:dup", "display_name": "Dup"}
+    client.post("/api/v1/actors", json=payload)
+    r = client.post("/api/v1/actors", json=payload)
+    assert r.status_code == 409
+

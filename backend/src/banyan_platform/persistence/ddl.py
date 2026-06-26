@@ -52,6 +52,19 @@ CREATE TABLE IF NOT EXISTS graph_topology (
     CONSTRAINT uq_topology_name UNIQUE (name)
 );
 
+CREATE TABLE IF NOT EXISTS banyan_actor (
+    -- Identity primitive for all attribution columns (actor_id / updated_by).
+    -- Stakeholder governance relationships reference this table via actor_id.
+    actor_id      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    handle        VARCHAR(200) NOT NULL,         -- Stable string used in actor_id / updated_by columns
+    display_name  VARCHAR(200) NOT NULL,
+    actor_type    VARCHAR(20)  NOT NULL,         -- SYSTEM | HUMAN | AGENT
+    org           VARCHAR(200),
+    notes         TEXT,
+    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_actor_handle UNIQUE (handle)
+);
+
 -- ============================================================================
 -- PART 2: OPERATIONAL TABLES
 -- ============================================================================
@@ -127,16 +140,14 @@ CREATE INDEX IF NOT EXISTS idx_link_cross_graph ON link(to_node_id);
 CREATE TABLE IF NOT EXISTS banyan_ledger (
     ledger_id         BIGINT PRIMARY KEY DEFAULT nextval('seq_ledger_id'),
     transaction_id    UUID NOT NULL,             -- Groups primitives belonging to one logical operation
-    actor_id          VARCHAR(200) NOT NULL,     -- Authenticated user or system process identifier
-    -- Primitive verbs:
-    --   ADD_NODE | UPDATE_NODE | DELETE_NODE | CREATE_LINK | UPDATE_LINK | DESTROY_LINK
+    actor_id          VARCHAR(200) NOT NULL,     -- Actor handle; references banyan_actor.handle (service-validated in strict mode)
     -- Primitive verbs for nodes/links:
     --   ADD_NODE | UPDATE_NODE | DELETE_NODE | CREATE_LINK | UPDATE_LINK | DESTROY_LINK
     -- Primitive verbs for meta/definitional objects (system-scope):
     --   CREATE_NODE_TYPE | UPDATE_NODE_TYPE | DELETE_NODE_TYPE
     --   CREATE_LINK_TYPE | UPDATE_LINK_TYPE | DELETE_LINK_TYPE
     --   CREATE_TOPOLOGY  | UPDATE_TOPOLOGY  | DELETE_TOPOLOGY
-    --   CREATE_STAKEHOLDER | UPDATE_STAKEHOLDER | DELETE_STAKEHOLDER
+    --   CREATE_ACTOR     | UPDATE_ACTOR     | DELETE_ACTOR
     primitive_verb    VARCHAR(50) NOT NULL,
     -- source_graph_id: graph context for node/link operations.
     -- NULL for system-scope definitional object mutations (node_type, link_type,
@@ -185,6 +196,7 @@ CREATE TABLE IF NOT EXISTS graph_snapshot (
 #   ba0ba000-0000-0000-0000-0000000000xx   link_type root families  (001–009)
 #   ba0ba000-0000-0000-0000-0000000000xx   link_type sub-types      (011–099)
 #   ba0ba000-0000-0000-0000-0000000001xx   node_type seeds          (101–199)
+#   ba0ba000-0000-0000-0001-0000000000xx   banyan_actor seeds       (001–099)
 #
 # Link type root families (parent_link_type_id IS NULL):
 #   HIERARCHICAL  (001) — parent/child structural; must stay within a single graph
@@ -240,10 +252,19 @@ INSERT INTO graph (graph_id, name, notes, updated_by)
 VALUES (
     'ba0ba000-0000-0000-0000-000000000000',
     '__system__',
-    'Sentinel graph for system-scope ledger entries (node_type, link_type, graph_topology, stakeholder mutations). Not a real graph.',
-    'system'
+    'Sentinel graph for system-scope ledger entries (node_type, link_type, graph_topology, actor mutations). Not a real graph.',
+    'system:bootstrap'
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- Well-known system actors.  Handles must match the strings used in actor_id /
+-- updated_by columns throughout the codebase and seed DML.
+INSERT INTO banyan_actor (actor_id, handle, display_name, actor_type, notes) VALUES
+    ('ba0ba000-0000-0000-0001-000000000001', 'system:bootstrap',  'System Bootstrap',   'SYSTEM', 'Seed and schema initialisation operations.'),
+    ('ba0ba000-0000-0000-0001-000000000002', 'system:ingest',     'Automated Ingest',   'SYSTEM', 'Batch data ingest pipelines.'),
+    ('ba0ba000-0000-0000-0001-000000000003', 'system:mcp-agent',  'MCP Agent',          'AGENT',  'LLM agent operations via the MCP interface.'),
+    ('ba0ba000-0000-0000-0001-000000000004', 'anonymous',         'Anonymous',          'HUMAN',  'Unauthenticated or unidentified human actor.')
+ON CONFLICT (handle) DO NOTHING;
 """
 
 

@@ -88,3 +88,39 @@ class LookupDAO:
         return _one_row(conn.execute(
             f"SELECT * FROM node_type WHERE name = {p}", [name]
         ))
+
+    # ── banyan_actor ──────────────────────────────────────────────────────────
+
+    def get_actors(self, conn) -> list[dict]:
+        return _all_rows(conn.execute(
+            "SELECT * FROM banyan_actor ORDER BY actor_type, handle"
+        ))
+
+    def get_actor_by_handle(self, conn, handle: str) -> dict | None:
+        p = self.db.placeholder
+        return _one_row(conn.execute(
+            f"SELECT * FROM banyan_actor WHERE handle = {p}", [handle]
+        ))
+
+    def register_actor(
+        self,
+        conn,
+        handle: str,
+        display_name: str,
+        actor_type: str = "HUMAN",
+        org: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        """
+        Insert a new actor row.  Raises if the handle already exists.
+        actor_type must be one of: SYSTEM, HUMAN, AGENT.
+        """
+        p = self.db.placeholder
+        return _one_row(conn.execute(
+            f"""
+            INSERT INTO banyan_actor (handle, display_name, actor_type, org, notes)
+            VALUES ({p}, {p}, {p}, {p}, {p})
+            RETURNING *
+            """,
+            [handle, display_name, actor_type, org, notes],
+        ))

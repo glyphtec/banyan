@@ -98,9 +98,9 @@ class LedgerDAO:
         "CREATE_TOPOLOGY",
         "UPDATE_TOPOLOGY",
         "DELETE_TOPOLOGY",
-        "CREATE_STAKEHOLDER",
-        "UPDATE_STAKEHOLDER",
-        "DELETE_STAKEHOLDER",
+        "CREATE_ACTOR",
+        "UPDATE_ACTOR",
+        "DELETE_ACTOR",
     })
 
     def __init__(self, db: Database) -> None:

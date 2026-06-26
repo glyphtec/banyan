@@ -1401,6 +1401,34 @@ class BanyanService:
         with self.db.connect() as conn:
             return self.lookup.get_node_types(conn)
 
+    # ── Actor registry ────────────────────────────────────────────────────────
+
+    def get_actors(self) -> list[dict]:
+        with self.db.connect() as conn:
+            return self.lookup.get_actors(conn)
+
+    def get_actor_by_handle(self, handle: str) -> dict | None:
+        with self.db.connect() as conn:
+            return self.lookup.get_actor_by_handle(conn, handle)
+
+    def register_actor(
+        self,
+        handle: str,
+        display_name: str,
+        actor_type: str = "HUMAN",
+        org: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        """
+        Register a new actor.  Raises if the handle already exists.
+        In strict_actor_validation mode, ledger writes require the actor to be registered.
+        """
+        with self.db.connect() as conn:
+            return self.lookup.register_actor(
+                conn, handle=handle, display_name=display_name,
+                actor_type=actor_type, org=org, notes=notes,
+            )
+
     # ── History ───────────────────────────────────────────────────────────────
 
     def get_graph_history(
