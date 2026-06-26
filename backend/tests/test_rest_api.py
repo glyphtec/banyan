@@ -21,7 +21,7 @@ def test_list_graphs(client):
 
 
 def test_get_graph_not_found(client):
-    r = client.get("/api/v1/graphs/00000000-0000-0000-0000-000000000000")
+    r = client.get("/api/v1/graphs/ffffffff-ffff-ffff-ffff-ffffffffffff")
     assert r.status_code == 404
 
 
