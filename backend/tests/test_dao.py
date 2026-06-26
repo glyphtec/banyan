@@ -126,6 +126,66 @@ def test_ledger_append_and_retrieve(db):
     assert lid >= 1
     assert len(entries) == 1
     assert entries[0]["primitive_verb"] == "ADD_NODE"
+    # Hash chain fields must be present and non-trivial
+    assert entries[0]["previous_hash"] == "0" * 64  # genesis entry
+    assert len(entries[0]["entry_hash"]) == 64
+    assert entries[0]["entry_hash"] != "0" * 64
+
+
+def test_ledger_hash_chain_chaining(db):
+    """Second entry's previous_hash must equal first entry's entry_hash."""
+    from banyan_platform.dao.ledger_dao import LedgerDAO
+    gid = _new_graph(db)
+    dao = LedgerDAO(db)
+    node_a = str(uuid.uuid4())
+    node_b = str(uuid.uuid4())
+    with db.connect() as conn:
+        lid1 = dao.append(
+            conn,
+            transaction_id=str(uuid.uuid4()),
+            actor_id=ACTOR,
+            primitive_verb="ADD_NODE",
+            source_graph_id=gid,
+            entity_id=node_a,
+            payload={"node_id": node_a},
+            reversal_payload={},
+        )
+        lid2 = dao.append(
+            conn,
+            transaction_id=str(uuid.uuid4()),
+            actor_id=ACTOR,
+            primitive_verb="ADD_NODE",
+            source_graph_id=gid,
+            entity_id=node_b,
+            payload={"node_id": node_b},
+            reversal_payload={},
+        )
+        e1 = dao.get(conn, lid1)
+        e2 = dao.get(conn, lid2)
+    assert e2["previous_hash"] == e1["entry_hash"]
+    assert e1["previous_hash"] == "0" * 64
+
+
+def test_ledger_verify_chain(db):
+    """verify_chain returns ok=True after normal operations."""
+    from banyan_platform.dao.ledger_dao import LedgerDAO
+    gid = _new_graph(db)
+    dao = LedgerDAO(db)
+    with db.connect() as conn:
+        for i in range(5):
+            dao.append(
+                conn,
+                transaction_id=str(uuid.uuid4()),
+                actor_id=ACTOR,
+                primitive_verb="ADD_NODE",
+                source_graph_id=gid,
+                entity_id=str(uuid.uuid4()),
+                payload={"i": i},
+                reversal_payload={},
+            )
+        result = dao.verify_chain(conn)
+    assert result["ok"] is True
+    assert result["entries_checked"] == 5
 
 
 # ── LookupDAO ─────────────────────────────────────────────────────────────────

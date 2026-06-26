@@ -30,3 +30,11 @@ def test_bootstrap_is_idempotent(db):
         assert conn.execute("SELECT COUNT(*) FROM link_type").fetchone()[0] == 7
         assert conn.execute("SELECT COUNT(*) FROM node_type").fetchone()[0] == 1
 
+
+def test_banyan_ledger_has_hash_chain_columns(db):
+    """banyan_ledger must expose previous_hash and entry_hash columns."""
+    with db.connect() as conn:
+        cols = {r[0] for r in conn.execute("DESCRIBE banyan_ledger").fetchall()}
+    assert "previous_hash" in cols
+    assert "entry_hash" in cols
+

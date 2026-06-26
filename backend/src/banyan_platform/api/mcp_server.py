@@ -489,4 +489,21 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         }
         return service.execute_batch(batch, actor_id=actor_id)
 
+    # ── Chain integrity ────────────────────────────────────────────────────
+
+    @mcp.tool
+    def verify_ledger_chain() -> dict:
+        """
+        Verify the integrity of the global ledger hash chain.
+
+        Re-computes every entry_hash from stored fields and confirms each
+        entry's previous_hash matches the preceding entry's entry_hash.
+        Any gap, reorder, or field modification will break the chain.
+
+        Returns:
+          {"ok": true,  "entries_checked": N}
+          {"ok": false, "entries_checked": N, "first_broken_ledger_id": M}
+        """
+        return service.verify_ledger_chain()
+
     return mcp

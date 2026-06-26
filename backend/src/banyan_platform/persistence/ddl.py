@@ -119,7 +119,9 @@ CREATE INDEX IF NOT EXISTS idx_link_cross_graph ON link(to_node_id);
 
 -- ============================================================================
 -- PART 3: AUDIT LEDGER & SNAPSHOTS
--- V1: plain audit log with undo capability.  No cryptographic chain.
+-- V1.1: append-only ledger with global SHA-256 hash chain.
+-- Each entry hashes its own content plus the previous entry's hash, forming
+-- a tamper-evident chain verifiable by any party holding the ledger.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS banyan_ledger (
@@ -146,7 +148,10 @@ CREATE TABLE IF NOT EXISTS banyan_ledger (
     payload           JSON NOT NULL,             -- Forward mutation delta (state after)
     reversal_payload  JSON NOT NULL,             -- Full prior state required to invert this entry (UNDO)
     reverses_ledger_id BIGINT REFERENCES banyan_ledger(ledger_id), -- Back-pointer set when this entry is a compensating UNDO
-    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Global hash chain.  previous_hash = entry_hash of ledger_id-1; genesis sentinel = 64 zeros.
+    previous_hash     VARCHAR(64)  NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
+    entry_hash        VARCHAR(64)  NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'
 );
 
 CREATE INDEX IF NOT EXISTS idx_ledger_graph_time  ON banyan_ledger(source_graph_id, inserted_datetime);

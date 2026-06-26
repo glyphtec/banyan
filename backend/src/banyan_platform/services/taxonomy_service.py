@@ -1408,3 +1408,8 @@ class BanyanService:
     ) -> list[dict]:
         with self.db.connect() as conn:
             return self.ledger.get_graph_history(conn, graph_id, since_ledger_id)
+
+    def verify_ledger_chain(self) -> dict:
+        """Re-compute and verify the global ledger hash chain. See LedgerDAO.verify_chain."""
+        with self.db.connect() as conn:
+            return self.ledger.verify_chain(conn)
