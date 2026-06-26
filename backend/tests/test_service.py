@@ -217,8 +217,9 @@ def test_undo_create_link(service):
     g = service.create_graph("G", actor_id=ACTOR)
     root = service.add_node(g["graph_id"], "ROOT", "Root", actor_id=ACTOR)
     child = service.add_node(g["graph_id"], "CHILD", "Child", actor_id=ACTOR)
+    lt_id = next(lt["link_type_id"] for lt in service.get_link_types() if lt["name"] == "HIERARCHICAL")
     lk = service.create_link(
-        link_type_id=1,
+        link_type_id=lt_id,
         from_graph_id=g["graph_id"], to_graph_id=g["graph_id"],
         from_node_id=root["node_id"], to_node_id=child["node_id"],
         actor_id=ACTOR,

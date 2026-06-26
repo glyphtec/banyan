@@ -37,7 +37,7 @@ class LinkDAO:
     def insert(
         self,
         conn,
-        link_type_id: int,
+        link_type_id: str,
         from_graph_id: str,
         to_graph_id: str,
         from_node_id: str,
@@ -90,7 +90,7 @@ class LinkDAO:
         conn,
         graph_id: str,
         from_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """Return active outbound links from from_node_id, ordered by link_order."""
         p = self.db.placeholder
@@ -113,7 +113,7 @@ class LinkDAO:
         conn,
         graph_id: str,
         to_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """Return active inbound links to to_node_id (supports polyhierarchy)."""
         p = self.db.placeholder

@@ -44,7 +44,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         name: str,
         actor_id: str = _MCP_DEFAULT_ACTOR,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
     ) -> dict:
         """Create a new graph (taxonomy / vocabulary)."""
         return service.create_graph(
@@ -68,7 +68,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         actor_id: str = _MCP_DEFAULT_ACTOR,
         name: str | None = None,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
     ) -> dict:
         """Update a graph's name, notes, or topology constraint."""
         return service.update_graph(
@@ -95,7 +95,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         actor_id: str = _MCP_DEFAULT_ACTOR,
         notes: str | None = None,
         metadata: dict | None = None,
-        node_type_id: int | None = None,
+        node_type_id: str | None = None,
     ) -> dict:
         """
         Add a node (term/concept) to a graph.
@@ -162,7 +162,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
 
     @mcp.tool
     def create_link(
-        link_type_id: int,
+        link_type_id: str,
         from_graph_id: str,
         to_graph_id: str,
         from_node_id: str,
@@ -247,7 +247,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
     def get_children(
         graph_id: str,
         from_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """Return all active outbound links from a node, ordered by link_order."""
         return service.get_children(graph_id, from_node_id, link_type_id)
@@ -256,7 +256,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
     def get_parents(
         graph_id: str,
         to_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """
         Return all active inbound links to a node.
@@ -270,7 +270,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
     def get_subtree(
         graph_id: str,
         root_node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """
         Return root_node_id and all its descendants within graph_id.
@@ -285,7 +285,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
     def get_ancestors(
         graph_id: str,
         node_id: str,
-        link_type_id: int | None = None,
+        link_type_id: str | None = None,
     ) -> list[dict]:
         """
         Return all ancestors of node_id, excluding the node itself.
@@ -455,7 +455,7 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         node_operations: list[dict],
         link_operations: list[dict],
         actor_id: str = _MCP_DEFAULT_ACTOR,
-        default_link_type_id: int | None = None,
+        default_link_type_id: str | None = None,
     ) -> dict:
         """
         Execute a batch of node and link operations atomically.

@@ -32,7 +32,7 @@ class GraphDAO:
         conn,
         name: str,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
         actor_id: str | None = None,
     ) -> str:
         graph_id = str(uuid.uuid4())
@@ -64,7 +64,7 @@ class GraphDAO:
         graph_id: str,
         name: str | None = None,
         notes: str | None = None,
-        topology_id: int | None = None,
+        topology_id: str | None = None,
         actor_id: str | None = None,
     ) -> None:
         fields, values = [], []
