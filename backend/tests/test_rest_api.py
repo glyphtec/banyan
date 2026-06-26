@@ -21,7 +21,7 @@ def test_list_graphs(client):
 
 
 def test_get_graph_not_found(client):
-    r = client.get("/api/v1/graphs/00000000-0000-0000-0000-000000000000")
+    r = client.get("/api/v1/graphs/ffffffff-ffff-ffff-ffff-ffffffffffff")
     assert r.status_code == 404
 
 
@@ -124,7 +124,10 @@ def test_get_link_types(client):
     r = client.get("/api/v1/link-types")
     assert r.status_code == 200
     names = {lt["name"] for lt in r.json()}
-    assert names == {"HIERARCHICAL", "RELATED", "SYNONYM"}
+    # Root families
+    assert {"HIERARCHICAL", "RELATED", "SYNONYM"}.issubset(names)
+    # RELATED sub-types
+    assert {"SAME_AS", "TERM_EQUIVALENT", "TERM_SIMILAR", "TERM_VARIANT"}.issubset(names)
 
 
 def test_get_node_types(client):

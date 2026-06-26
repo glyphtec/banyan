@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS banyan_ledger (
     -- source_graph_id: graph context for node/link operations.
     -- NULL for system-scope definitional object mutations (node_type, link_type,
     -- graph_topology, stakeholder).  Use the __system__ sentinel graph
-    -- (00000000-0000-0000-0000-000000000000) when a non-null value is required.
+    -- (ba0ba000-0000-0000-0000-000000000000) when a non-null value is required.
     source_graph_id   UUID,                             -- Graph context; no FK so the ledger survives graph deletion
     target_graph_id   UUID,                             -- Populated for cross-graph link operations
     entity_id         UUID NOT NULL,             -- The Node UUID, Link UUID, or meta-object UUID acted upon
@@ -171,23 +171,61 @@ CREATE TABLE IF NOT EXISTS graph_snapshot (
 # Idempotent seed data for lookup tables.
 # Uses ON CONFLICT DO NOTHING so it is safe to run on every startup.
 #
-# Link type families (no parent):
-#   HIERARCHICAL  — parent/child structural links; must stay within a single graph
-#   RELATED       — associative links; may cross graph boundaries
-#   SYNONYM       — equivalence links; must stay within a single graph
+# All system-seeded objects use well-known UUIDs with the prefix ba0ba000-
+# so they are visually identifiable in query output and referenceable as
+# application-layer constants without a lookup query.
 #
-# Node type:
-#   Generic       — placeholder until domain-specific types are defined
+# Address space:
+#   ba0ba000-0000-0000-0000-000000000000   __system__ sentinel graph
+#   ba0ba000-0000-0000-0000-0000000000xx   link_type root families  (001–009)
+#   ba0ba000-0000-0000-0000-0000000000xx   link_type sub-types      (011–099)
+#   ba0ba000-0000-0000-0000-0000000001xx   node_type seeds          (101–199)
+#
+# Link type root families (parent_link_type_id IS NULL):
+#   HIERARCHICAL  (001) — parent/child structural; must stay within a single graph
+#   RELATED       (002) — associative; may cross graph boundaries
+#   SYNONYM       (003) — equivalence; must stay within a single graph
+#
+# RELATED sub-types:
+#   SAME_AS         (011) — cross-graph editorial equivalence (crosswalk product);
+#                           link_provenance='asserted' in metadata
+#   TERM_EQUIVALENT (012) — intra-graph structural duplicate; same concept appearing
+#                           under multiple browse paths due to source taxonomy
+#                           constraints (e.g. OE single-parent limitation);
+#                           link_provenance='auto' when machine-detected by name match
+#   TERM_SIMILAR    (013) — overlapping but not identical scope; use when
+#                           TERM_EQUIVALENT overstates certainty; add scope note
+#                           in link metadata
+#   TERM_VARIANT    (014) — same label, definitionally distinct concepts; use when
+#                           source reuses a term name for genuinely different meanings
+#
+# Node type seeds:
+#   Generic (101) — placeholder until domain-specific types are defined
 
 BANYAN_SEED_DML = """
-INSERT INTO link_type (name, notes) VALUES
-    ('HIERARCHICAL', 'Parent-child structural relationships. Must remain within a single graph.'),
-    ('RELATED',      'Associative relationships. May cross graph boundaries.'),
-    ('SYNONYM',      'Equivalence relationships. Must remain within a single graph.')
+INSERT INTO link_type (link_type_id, name, notes) VALUES
+    ('ba0ba000-0000-0000-0000-000000000001', 'HIERARCHICAL', 'Parent-child structural relationships. Must remain within a single graph.'),
+    ('ba0ba000-0000-0000-0000-000000000002', 'RELATED',      'Associative relationships. May cross graph boundaries.'),
+    ('ba0ba000-0000-0000-0000-000000000003', 'SYNONYM',      'Equivalence relationships. Must remain within a single graph.')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO node_type (name, notes) VALUES
-    ('Generic', 'General-purpose node type. Refine with domain-specific types as needed.')
+INSERT INTO link_type (link_type_id, parent_link_type_id, name, notes) VALUES
+    ('ba0ba000-0000-0000-0000-000000000011', 'ba0ba000-0000-0000-0000-000000000002',
+     'SAME_AS',
+     'Cross-graph editorial equivalence assertion. Links a node in one taxonomy to its counterpart in another (e.g. OE to Gravity). Set link_provenance=''asserted'' in metadata.'),
+    ('ba0ba000-0000-0000-0000-000000000012', 'ba0ba000-0000-0000-0000-000000000002',
+     'TERM_EQUIVALENT',
+     'Intra-graph structural duplicate. Same concept appearing under multiple browse paths due to source taxonomy constraints (e.g. OE single-parent limitation). Set link_provenance=''auto'' when machine-detected by name match.'),
+    ('ba0ba000-0000-0000-0000-000000000013', 'ba0ba000-0000-0000-0000-000000000002',
+     'TERM_SIMILAR',
+     'Overlapping but not identical scope. Use when TERM_EQUIVALENT overstates certainty. Add a scope note in link metadata to describe the variance.'),
+    ('ba0ba000-0000-0000-0000-000000000014', 'ba0ba000-0000-0000-0000-000000000002',
+     'TERM_VARIANT',
+     'Same label, definitionally distinct concepts. Use when a source reuses a term name for genuinely different meanings.')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO node_type (node_type_id, name, notes) VALUES
+    ('ba0ba000-0000-0000-0000-000000000101', 'Generic', 'General-purpose node type. Refine with domain-specific types as needed.')
 ON CONFLICT (name) DO NOTHING;
 
 -- Sentinel graph for system-scope ledger entries.
@@ -195,7 +233,7 @@ ON CONFLICT (name) DO NOTHING;
 -- source_graph_id to this well-known UUID rather than NULL.
 INSERT INTO graph (graph_id, name, notes, updated_by)
 VALUES (
-    '00000000-0000-0000-0000-000000000000',
+    'ba0ba000-0000-0000-0000-000000000000',
     '__system__',
     'Sentinel graph for system-scope ledger entries (node_type, link_type, graph_topology, stakeholder mutations). Not a real graph.',
     'system'

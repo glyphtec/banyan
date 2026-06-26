@@ -12,7 +12,10 @@ def test_bootstrap_creates_core_tables(db):
 def test_bootstrap_seeds_link_type_families(db):
     with db.connect() as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM link_type").fetchall()}
-    assert names == {"HIERARCHICAL", "RELATED", "SYNONYM"}
+    # Root families
+    assert {"HIERARCHICAL", "RELATED", "SYNONYM"}.issubset(names)
+    # RELATED sub-types added for crosswalk use
+    assert {"SAME_AS", "TERM_EQUIVALENT", "TERM_SIMILAR", "TERM_VARIANT"}.issubset(names)
 
 
 def test_bootstrap_seeds_generic_node_type(db):
@@ -24,6 +27,6 @@ def test_bootstrap_seeds_generic_node_type(db):
 def test_bootstrap_is_idempotent(db):
     bootstrap(db)  # second run
     with db.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM link_type").fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM link_type").fetchone()[0] == 7
         assert conn.execute("SELECT COUNT(*) FROM node_type").fetchone()[0] == 1
 

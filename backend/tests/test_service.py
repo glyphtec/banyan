@@ -15,7 +15,7 @@ def test_create_and_get_graph(service):
 
 def test_get_graph_not_found_raises(service):
     with pytest.raises(KeyError):
-        service.get_graph("00000000-0000-0000-0000-000000000000")
+        service.get_graph("ffffffff-ffff-ffff-ffff-ffffffffffff")
 
 
 def test_list_graphs(service):
