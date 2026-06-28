@@ -421,8 +421,14 @@ def build_rest_router(service: BanyanService) -> APIRouter:
     # -- Lookup ----------------------------------------------------------------
 
     @router.get("/link-types")
-    def get_link_types():
-        return service.get_link_types()
+    def get_link_types(root: str | None = None):
+        result = service.get_link_types(root=root)
+        if root is not None and not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Link type '{root}' not found.",
+            )
+        return result
 
     @router.get("/node-types")
     def get_node_types():

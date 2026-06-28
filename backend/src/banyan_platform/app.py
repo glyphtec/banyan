@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from banyan_platform.api.admin import build_admin_router
 from banyan_platform.api.mcp_server import build_mcp_server
@@ -25,6 +26,12 @@ def create_app(config: DatabaseConfig | None = None) -> FastAPI:
         title="Banyan Platform",
         version="0.1.0",
         lifespan=mcp_app.lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.include_router(build_rest_router(service))
 

@@ -39,6 +39,30 @@ class LookupDAO:
             "FROM link_type ORDER BY name"
         ))
 
+    def get_link_type_subtree(self, conn, root_name: str) -> list[dict]:
+        """
+        Return root_name and all its descendants in the link_type metagraph,
+        using a recursive CTE.  Returns an empty list if root_name is not found.
+        """
+        p = self.db.placeholder
+        sql = f"""
+            WITH RECURSIVE family AS (
+                SELECT link_type_id, parent_link_type_id, name, notes
+                FROM link_type
+                WHERE name = {p}
+
+                UNION ALL
+
+                SELECT lt.link_type_id, lt.parent_link_type_id, lt.name, lt.notes
+                FROM link_type lt
+                JOIN family f ON lt.parent_link_type_id = f.link_type_id
+            )
+            SELECT link_type_id, parent_link_type_id, name, notes
+            FROM family
+            ORDER BY name
+        """
+        return _all_rows(conn.execute(sql, [root_name]))
+
     def get_link_type(self, conn, link_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(

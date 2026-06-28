@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -38,6 +39,7 @@ class DuckDBDatabase(Database):
     def __init__(self, config: DatabaseConfig) -> None:
         self._path = config.duckdb_path
         self._conn = None
+        self._lock = threading.Lock()
 
     def _get_conn(self):
         if self._conn is None:
@@ -52,26 +54,26 @@ class DuckDBDatabase(Database):
 
     @contextmanager
     def connect(self):
-        conn = self._get_conn()
-        # Guard: if a prior transaction was abandoned without rollback (e.g. during
-        # tests), begin() will raise.  Recover by rolling back the stale transaction.
-        try:
-            conn.begin()
-        except Exception:
+        with self._lock:
+            conn = self._get_conn()
+            # Proactively rollback before begin(): DuckDB does not raise on begin()
+            # when a transaction is in an aborted state, only on the next execute().
+            # The lock serialises all DB access across threads (FastAPI runs sync
+            # handlers in a thread pool), preventing concurrent-transaction races.
             try:
                 conn.rollback()
             except Exception:
                 pass
             conn.begin()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
             try:
-                conn.rollback()
+                yield conn
+                conn.commit()
             except Exception:
-                pass
-            raise
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
 
 
 class PostgresDatabase(Database):

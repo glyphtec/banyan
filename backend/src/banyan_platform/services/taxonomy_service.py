@@ -1393,9 +1393,11 @@ class BanyanService:
 
     # ── Lookup ────────────────────────────────────────────────────────────────
 
-    def get_link_types(self) -> list[dict]:
+    def get_link_types(self, root: str | None = None) -> list[dict]:
         with self.db.connect() as conn:
-            return self.lookup.get_link_types(conn)
+            if root is None:
+                return self.lookup.get_link_types(conn)
+            return self.lookup.get_link_type_subtree(conn, root)
 
     def get_node_types(self) -> list[dict]:
         with self.db.connect() as conn:
