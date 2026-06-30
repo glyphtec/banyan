@@ -150,6 +150,10 @@ activemq-data/
 # Banyan local dev data
 backend/data/
 
+# Private docs — credentials, personal project notes, license files with keys.
+# Put anything in docs/private/ that should never leave this machine.
+docs/private/
+
 # Node / frontend
 node_modules/
 frontend/node_modules/
