@@ -140,6 +140,36 @@ class ActorRegister(BaseModel):
     snapshot_payload: dict = {}
 
 
+class LinkTypeCreate(BaseModel):
+    name: str
+    notes: str | None = None
+    parent_link_type_id: str | None = None
+
+class LinkTypeUpdate(BaseModel):
+    name: str | None = None
+    notes: str | None = None
+
+class LinkTypeResponse(BaseModel):
+    link_type_id: str
+    parent_link_type_id: str | None = None
+    name: str
+    notes: str | None = None
+
+
+class NodeTypeCreate(BaseModel):
+    name: str
+    notes: str | None = None
+
+class NodeTypeUpdate(BaseModel):
+    name: str | None = None
+    notes: str | None = None
+
+class NodeTypeResponse(BaseModel):
+    node_type_id: str
+    name: str
+    notes: str | None = None
+
+
 class LedgerEntryResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     ledger_id: int
@@ -420,7 +450,7 @@ def build_rest_router(service: BanyanService) -> APIRouter:
 
     # -- Lookup ----------------------------------------------------------------
 
-    @router.get("/link-types")
+    @router.get("/link-types", response_model=list[LinkTypeResponse])
     def get_link_types(root: str | None = None):
         result = service.get_link_types(root=root)
         if root is not None and not result:
@@ -430,9 +460,65 @@ def build_rest_router(service: BanyanService) -> APIRouter:
             )
         return result
 
-    @router.get("/node-types")
+    @router.post("/link-types", response_model=LinkTypeResponse, status_code=201)
+    def create_link_type(payload: LinkTypeCreate):
+        try:
+            return service.create_link_type(
+                name=payload.name,
+                notes=payload.notes,
+                parent_link_type_id=payload.parent_link_type_id,
+            )
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
+
+    @router.patch("/link-types/{link_type_id}", response_model=LinkTypeResponse)
+    def update_link_type(link_type_id: str, payload: LinkTypeUpdate):
+        try:
+            return service.update_link_type(
+                link_type_id, name=payload.name, notes=payload.notes
+            )
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.delete("/link-types/{link_type_id}", status_code=204)
+    def delete_link_type(link_type_id: str):
+        try:
+            service.delete_link_type(link_type_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
+
+    @router.get("/node-types", response_model=list[NodeTypeResponse])
     def get_node_types():
         return service.get_node_types()
+
+    @router.post("/node-types", response_model=NodeTypeResponse, status_code=201)
+    def create_node_type(payload: NodeTypeCreate):
+        try:
+            return service.create_node_type(name=payload.name, notes=payload.notes)
+        except ValueError as exc:
+            raise _bad_request(exc)
+
+    @router.patch("/node-types/{node_type_id}", response_model=NodeTypeResponse)
+    def update_node_type(node_type_id: str, payload: NodeTypeUpdate):
+        try:
+            return service.update_node_type(
+                node_type_id, name=payload.name, notes=payload.notes
+            )
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.delete("/node-types/{node_type_id}", status_code=204)
+    def delete_node_type(node_type_id: str):
+        try:
+            service.delete_node_type(node_type_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
 
     # -- Actor registry --------------------------------------------------------
 

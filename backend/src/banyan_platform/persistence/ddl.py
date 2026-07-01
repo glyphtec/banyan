@@ -215,6 +215,9 @@ CREATE TABLE IF NOT EXISTS graph_snapshot (
 #                           in link metadata
 #   TERM_VARIANT    (014) — same label, definitionally distinct concepts; use when
 #                           source reuses a term name for genuinely different meanings
+#   HAS_MEMBER      (015) — cross-graph membership assertion; Gravity L2 activity
+#                           node → clinical code node (SNOMED / ICD-10-CM);
+#                           link_provenance='derived' when sourced from VSAC expansions
 #
 # Node type seeds:
 #   Generic (101) — placeholder until domain-specific types are defined
@@ -238,7 +241,10 @@ INSERT INTO link_type (link_type_id, parent_link_type_id, name, notes) VALUES
      'Overlapping but not identical scope. Use when TERM_EQUIVALENT overstates certainty. Add a scope note in link metadata to describe the variance.'),
     ('ba0ba000-0000-0000-0000-000000000014', 'ba0ba000-0000-0000-0000-000000000002',
      'TERM_VARIANT',
-     'Same label, definitionally distinct concepts. Use when a source reuses a term name for genuinely different meanings.')
+     'Same label, definitionally distinct concepts. Use when a source reuses a term name for genuinely different meanings.'),
+    ('ba0ba000-0000-0000-0000-000000000015', 'ba0ba000-0000-0000-0000-000000000002',
+     'HAS_MEMBER',
+     'Cross-graph membership assertion. Links a Gravity value-set activity node (source) to a clinical code node in a terminology graph (target). Indicates the code is a member of the Gravity value set. Set link_provenance=''derived'' when generated from VSAC expansion data.')
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO node_type (node_type_id, name, notes) VALUES

@@ -1399,9 +1399,91 @@ class BanyanService:
                 return self.lookup.get_link_types(conn)
             return self.lookup.get_link_type_subtree(conn, root)
 
+    def create_link_type(
+        self,
+        name: str,
+        notes: str | None = None,
+        parent_link_type_id: str | None = None,
+    ) -> dict:
+        with self.db.connect() as conn:
+            if parent_link_type_id is not None:
+                if self.lookup.get_link_type(conn, parent_link_type_id) is None:
+                    raise KeyError(f"Parent link type '{parent_link_type_id}' not found.")
+            return self.lookup.create_link_type(
+                conn, name=name, notes=notes,
+                parent_link_type_id=parent_link_type_id,
+            )
+
+    def update_link_type(
+        self,
+        link_type_id: str,
+        name: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        with self.db.connect() as conn:
+            if self.lookup.get_link_type(conn, link_type_id) is None:
+                raise KeyError(f"Link type '{link_type_id}' not found.")
+            self.lookup.update_link_type(conn, link_type_id, name=name, notes=notes)
+            return self.lookup.get_link_type(conn, link_type_id)
+
+    def delete_link_type(self, link_type_id: str) -> None:
+        with self.db.connect() as conn:
+            if self.lookup.get_link_type(conn, link_type_id) is None:
+                raise KeyError(f"Link type '{link_type_id}' not found.")
+            p = self.db.placeholder
+            child_count = conn.execute(
+                f"SELECT COUNT(*) FROM link_type WHERE parent_link_type_id = {p}",
+                [link_type_id],
+            ).fetchone()[0]
+            if child_count:
+                raise ValueError(
+                    f"Link type has {child_count} child sub-type(s). "
+                    "Delete or re-parent them first."
+                )
+            usage_count = conn.execute(
+                f"SELECT COUNT(*) FROM link WHERE link_type_id = {p}",
+                [link_type_id],
+            ).fetchone()[0]
+            if usage_count:
+                raise ValueError(
+                    f"Link type is referenced by {usage_count} link(s) and cannot be deleted."
+                )
+            self.lookup.delete_link_type(conn, link_type_id)
+
     def get_node_types(self) -> list[dict]:
         with self.db.connect() as conn:
             return self.lookup.get_node_types(conn)
+
+    def create_node_type(self, name: str, notes: str | None = None) -> dict:
+        with self.db.connect() as conn:
+            return self.lookup.create_node_type(conn, name=name, notes=notes)
+
+    def update_node_type(
+        self,
+        node_type_id: str,
+        name: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        with self.db.connect() as conn:
+            if self.lookup.get_node_type(conn, node_type_id) is None:
+                raise KeyError(f"Node type '{node_type_id}' not found.")
+            self.lookup.update_node_type(conn, node_type_id, name=name, notes=notes)
+            return self.lookup.get_node_type(conn, node_type_id)
+
+    def delete_node_type(self, node_type_id: str) -> None:
+        with self.db.connect() as conn:
+            if self.lookup.get_node_type(conn, node_type_id) is None:
+                raise KeyError(f"Node type '{node_type_id}' not found.")
+            p = self.db.placeholder
+            usage_count = conn.execute(
+                f"SELECT COUNT(*) FROM node WHERE node_type_id = {p}",
+                [node_type_id],
+            ).fetchone()[0]
+            if usage_count:
+                raise ValueError(
+                    f"Node type is referenced by {usage_count} node(s) and cannot be deleted."
+                )
+            self.lookup.delete_node_type(conn, node_type_id)
 
     # ── Actor registry ────────────────────────────────────────────────────────
 

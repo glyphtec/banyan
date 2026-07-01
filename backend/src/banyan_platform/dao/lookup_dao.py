@@ -113,6 +113,88 @@ class LookupDAO:
             f"SELECT * FROM node_type WHERE name = {p}", [name]
         ))
 
+    def create_link_type(
+        self,
+        conn,
+        name: str,
+        notes: str | None = None,
+        parent_link_type_id: str | None = None,
+    ) -> dict:
+        p = self.db.placeholder
+        return _one_row(conn.execute(
+            f"""
+            INSERT INTO link_type (name, notes, parent_link_type_id)
+            VALUES ({p}, {p}, {p})
+            RETURNING link_type_id, parent_link_type_id, name, notes
+            """,
+            [name, notes, parent_link_type_id],
+        ))
+
+    def update_link_type(
+        self,
+        conn,
+        link_type_id: str,
+        name: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        fields, values = [], []
+        p = self.db.placeholder
+        if name is not None:
+            fields.append(f"name = {p}"); values.append(name)
+        if notes is not None:
+            fields.append(f"notes = {p}"); values.append(notes)
+        if not fields:
+            return
+        fields.append("updated_datetime = CURRENT_TIMESTAMP")
+        values.append(link_type_id)
+        conn.execute(
+            f"UPDATE link_type SET {', '.join(fields)} WHERE link_type_id = {p}", values
+        )
+
+    def delete_link_type(self, conn, link_type_id: str) -> None:
+        p = self.db.placeholder
+        conn.execute(f"DELETE FROM link_type WHERE link_type_id = {p}", [link_type_id])
+
+    def create_node_type(
+        self,
+        conn,
+        name: str,
+        notes: str | None = None,
+    ) -> dict:
+        p = self.db.placeholder
+        return _one_row(conn.execute(
+            f"""
+            INSERT INTO node_type (name, notes)
+            VALUES ({p}, {p})
+            RETURNING node_type_id, name, notes
+            """,
+            [name, notes],
+        ))
+
+    def update_node_type(
+        self,
+        conn,
+        node_type_id: str,
+        name: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        fields, values = [], []
+        p = self.db.placeholder
+        if name is not None:
+            fields.append(f"name = {p}"); values.append(name)
+        if notes is not None:
+            fields.append(f"notes = {p}"); values.append(notes)
+        if not fields:
+            return
+        values.append(node_type_id)
+        conn.execute(
+            f"UPDATE node_type SET {', '.join(fields)} WHERE node_type_id = {p}", values
+        )
+
+    def delete_node_type(self, conn, node_type_id: str) -> None:
+        p = self.db.placeholder
+        conn.execute(f"DELETE FROM node_type WHERE node_type_id = {p}", [node_type_id])
+
     # ── banyan_actor ──────────────────────────────────────────────────────────
 
     def get_actors(self, conn) -> list[dict]:
