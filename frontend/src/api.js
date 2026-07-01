@@ -5,6 +5,6 @@ async function _get(path) {
 }
 
 export const listGraphs   = ()         => _get('/api/v1/graphs')
-export const exportGraph  = (graphId)  => _get(`/api/v1/graphs/${graphId}/export`)
+export const exportGraph  = (graphId)  => _get(`/api/v1/graphs/${graphId}/export?include_cross_graph_links=true`)
 export const getLinkTypes = (root)     => _get(`/api/v1/link-types${root ? `?root=${encodeURIComponent(root)}` : ''}`)
 export const getNodeTypes = ()         => _get('/api/v1/node-types')

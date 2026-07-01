@@ -32,14 +32,14 @@ function MetadataSection({ metadata }) {
   )
 }
 
-function LinksSection({ title, links, nodeMap, onSelect }) {
+function LinksSection({ title, links, nodeMap, currentNodeId, onSelect }) {
   if (!links || links.length === 0) return null
   return (
     <div className="detail-section">
       <h3>{title} <span style={{ fontWeight: 400, textTransform: 'none' }}>({links.length})</span></h3>
       <ul className="link-list">
         {links.map(l => {
-          const peerId = title.startsWith('Parent') ? l.from_node_id : l.to_node_id
+          const peerId = l.from_node_id === currentNodeId ? l.to_node_id : l.from_node_id
           const peer = nodeMap[peerId]
           return (
             <li key={l.link_id}>
@@ -56,7 +56,7 @@ function LinksSection({ title, links, nodeMap, onSelect }) {
   )
 }
 
-export function NodeDetail({ node, links, nodeMap, graphMap, nodeTypeMap, onSelect }) {
+export function NodeDetail({ node, links, nodeMap, graphMap, nodeTypeMap, hierarchicalIds, relatedIds, onSelect }) {
   if (!node) {
     return (
       <div className="detail-panel">
@@ -70,11 +70,17 @@ export function NodeDetail({ node, links, nodeMap, graphMap, nodeTypeMap, onSele
     return name ? <>{name} <span style={{ color: 'var(--text-dim)', fontFamily: 'var(--mono)', fontSize: '11px' }}>({id})</span></> : id
   }
 
-  const parentLinks = links.filter(l => l.to_node_id === node.node_id)
-  const childLinks  = links.filter(l => l.from_node_id === node.node_id)
-  const otherLinks  = links.filter(
-    l => (l.to_node_id === node.node_id || l.from_node_id === node.node_id) &&
-         !parentLinks.includes(l) && !childLinks.includes(l)
+  const hierarchical = new Set(hierarchicalIds)
+  const related      = new Set(relatedIds)
+
+  const parentLinks  = links.filter(l => l.to_node_id   === node.node_id && hierarchical.has(l.link_type_id))
+  const childLinks   = links.filter(l => l.from_node_id === node.node_id && hierarchical.has(l.link_type_id))
+  const relatedLinks = links.filter(l =>
+    (l.from_node_id === node.node_id || l.to_node_id === node.node_id) && related.has(l.link_type_id)
+  )
+  const otherLinks   = links.filter(l =>
+    (l.from_node_id === node.node_id || l.to_node_id === node.node_id) &&
+    !hierarchical.has(l.link_type_id) && !related.has(l.link_type_id)
   )
 
   return (
@@ -114,25 +120,11 @@ export function NodeDetail({ node, links, nodeMap, graphMap, nodeTypeMap, onSele
         </table>
       </div>
 
-      <LinksSection
-        title="Parents"
-        links={parentLinks}
-        nodeMap={nodeMap}
-        onSelect={onSelect}
-      />
-      <LinksSection
-        title="Children"
-        links={childLinks}
-        nodeMap={nodeMap}
-        onSelect={onSelect}
-      />
+      <LinksSection title="Parents"  links={parentLinks}  nodeMap={nodeMap} currentNodeId={node.node_id} onSelect={onSelect} />
+      <LinksSection title="Children" links={childLinks}   nodeMap={nodeMap} currentNodeId={node.node_id} onSelect={onSelect} />
+      <LinksSection title="Related"  links={relatedLinks} nodeMap={nodeMap} currentNodeId={node.node_id} onSelect={onSelect} />
       {otherLinks.length > 0 && (
-        <LinksSection
-          title="Related"
-          links={otherLinks}
-          nodeMap={nodeMap}
-          onSelect={onSelect}
-        />
+        <LinksSection title="Other" links={otherLinks} nodeMap={nodeMap} currentNodeId={node.node_id} onSelect={onSelect} />
       )}
     </div>
   )

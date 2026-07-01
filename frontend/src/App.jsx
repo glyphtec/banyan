@@ -10,7 +10,8 @@ export function App() {
   const [graphs, setGraphs]           = useState([])
   const [selectedGraphId, setSelected] = useState(null)
   const [exportData, setExportData]   = useState(null)   // { nodes, links, graph }
-  const [linkTypes, setLinkTypes]     = useState([])
+  const [linkTypes, setLinkTypes]     = useState([])  // HIERARCHICAL family
+  const [relatedTypes, setRelatedTypes] = useState([]) // RELATED family
   const [nodeTypes, setNodeTypes]     = useState([])
   const [searchTerm, setSearchTerm]   = useState('')
   const [activeNode, setActiveNode]   = useState(null)
@@ -39,11 +40,12 @@ export function App() {
   // Boot: fetch graph list + link types in parallel
   useEffect(() => {
     setStatus({ text: 'Loading…', error: false })
-    Promise.all([listGraphs(), getLinkTypes('HIERARCHICAL'), getNodeTypes()])
-      .then(([gs, lts, nts]) => {
+    Promise.all([listGraphs(), getLinkTypes('HIERARCHICAL'), getLinkTypes('RELATED'), getNodeTypes()])
+      .then(([gs, lts, rlts, nts]) => {
         const visible = gs.filter(g => g.name !== '__system__')
         setGraphs(visible)
         setLinkTypes(lts)
+        setRelatedTypes(rlts)
         setNodeTypes(nts)
         setStatus({ text: `${visible.length} graph${visible.length !== 1 ? 's' : ''}`, error: false })
       })
@@ -60,8 +62,9 @@ export function App() {
     exportGraph(selectedGraphId)
       .then(data => {
         setExportData(data)
+        const crossCount = data.cross_graph_links?.length ?? 0
         setStatus({
-          text: `${data.nodes.length} nodes · ${data.links.length} links`,
+          text: `${data.nodes.length} nodes · ${data.links.length} links${crossCount ? ` · ${crossCount} cross-graph` : ''}`,
           error: false,
         })
       })
@@ -70,6 +73,7 @@ export function App() {
   }, [selectedGraphId])
 
   const hierarchicalIds = useMemo(() => buildHierarchicalFamily(linkTypes), [linkTypes])
+  const relatedIds = useMemo(() => new Set(relatedTypes.map(lt => lt.link_type_id)), [relatedTypes])
 
   const treeData = useMemo(() => {
     if (!exportData) return []
@@ -91,10 +95,11 @@ export function App() {
     [nodeTypes]
   )
 
-  // All links touching the active node (for detail panel)
+  // All links touching the active node (for detail panel) — includes cross-graph links
   const activeLinks = useMemo(() => {
     if (!activeNode || !exportData) return []
-    return exportData.links.filter(
+    const all = [...(exportData.links ?? []), ...(exportData.cross_graph_links ?? [])]
+    return all.filter(
       l => l.from_node_id === activeNode.node_id || l.to_node_id === activeNode.node_id
     )
   }, [activeNode, exportData])
@@ -153,6 +158,8 @@ export function App() {
           nodeMap={nodeMap}
           graphMap={graphMap}
           nodeTypeMap={nodeTypeMap}
+          hierarchicalIds={hierarchicalIds}
+          relatedIds={relatedIds}
           onSelect={setActiveNode}
         />
       </div>
