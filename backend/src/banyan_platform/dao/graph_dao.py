@@ -49,7 +49,7 @@ class GraphDAO:
     def get(self, conn, graph_id: str) -> dict | None:
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM graph WHERE graph_id = {p}", [graph_id]
+            f"SELECT * FROM graph WHERE CAST(graph_id AS VARCHAR) = {p}", [graph_id]
         )
         return _row(cursor, cursor.fetchone())
 
@@ -82,17 +82,17 @@ class GraphDAO:
             fields.append(f"updated_by = {p}"); values.append(actor_id)
         values.append(graph_id)
         conn.execute(
-            f"UPDATE graph SET {', '.join(fields)} WHERE graph_id = {p}", values
+            f"UPDATE graph SET {', '.join(fields)} WHERE CAST(graph_id AS VARCHAR) = {p}", values
         )
 
     def set_root_node(self, conn, graph_id: str, root_node_id: str) -> None:
         """Back-populate root_node_id after the root node has been created."""
         p = self.db.placeholder
         conn.execute(
-            f"UPDATE graph SET root_node_id = {p} WHERE graph_id = {p}",
+            f"UPDATE graph SET root_node_id = {p} WHERE CAST(graph_id AS VARCHAR) = {p}",
             [root_node_id, graph_id],
         )
 
     def delete(self, conn, graph_id: str) -> None:
         p = self.db.placeholder
-        conn.execute(f"DELETE FROM graph WHERE graph_id = {p}", [graph_id])
+        conn.execute(f"DELETE FROM graph WHERE CAST(graph_id AS VARCHAR) = {p}", [graph_id])

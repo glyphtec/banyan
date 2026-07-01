@@ -53,7 +53,7 @@ class SnapshotDAO:
     def get(self, conn, snapshot_id: str) -> dict | None:
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM graph_snapshot WHERE snapshot_id = {p}", [snapshot_id]
+            f"SELECT * FROM graph_snapshot WHERE CAST(snapshot_id AS VARCHAR) = {p}", [snapshot_id]
         )
         row = cursor.fetchone()
         if row is None:
@@ -69,7 +69,7 @@ class SnapshotDAO:
         cursor = conn.execute(
             f"SELECT snapshot_id, graph_id, version_label, ledger_id, "
             f"actor_id, inserted_datetime "
-            f"FROM graph_snapshot WHERE graph_id = {p} "
+            f"FROM graph_snapshot WHERE CAST(graph_id AS VARCHAR) = {p} "
             f"ORDER BY inserted_datetime",
             [graph_id],
         )

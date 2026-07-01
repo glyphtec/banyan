@@ -202,7 +202,7 @@ class LedgerDAO:
         cursor = conn.execute(
             f"""
             SELECT * FROM banyan_ledger
-            WHERE transaction_id = {p}
+            WHERE CAST(transaction_id AS VARCHAR) = {p}
             ORDER BY ledger_id
             """,
             [transaction_id],
@@ -221,7 +221,7 @@ class LedgerDAO:
         Pass *since_ledger_id* to fetch only entries after a snapshot pin.
         """
         p = self.db.placeholder
-        sql = f"SELECT * FROM banyan_ledger WHERE source_graph_id = {p}"
+        sql = f"SELECT * FROM banyan_ledger WHERE CAST(source_graph_id AS VARCHAR) = {p}"
         params: list = [source_graph_id]
         if since_ledger_id is not None:
             sql += f" AND ledger_id > {p}"

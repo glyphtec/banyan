@@ -76,7 +76,7 @@ class LinkDAO:
 
     def get(self, conn, link_id: str) -> dict | None:
         p = self.db.placeholder
-        cursor = conn.execute(f"SELECT * FROM link WHERE link_id = {p}", [link_id])
+        cursor = conn.execute(f"SELECT * FROM link WHERE CAST(link_id AS VARCHAR) = {p}", [link_id])
         row = cursor.fetchone()
         if row is None:
             return None
@@ -96,13 +96,13 @@ class LinkDAO:
         p = self.db.placeholder
         sql = f"""
             SELECT * FROM link
-            WHERE from_graph_id = {p}
-              AND from_node_id = {p}
+            WHERE CAST(from_graph_id AS VARCHAR) = {p}
+              AND CAST(from_node_id AS VARCHAR) = {p}
               AND is_disabled = FALSE
         """
         params: list = [graph_id, from_node_id]
         if link_type_id is not None:
-            sql += f" AND link_type_id = {p}"
+            sql += f" AND CAST(link_type_id AS VARCHAR) = {p}"
             params.append(link_type_id)
         sql += " ORDER BY link_order"
         cursor = conn.execute(sql, params)
@@ -119,13 +119,13 @@ class LinkDAO:
         p = self.db.placeholder
         sql = f"""
             SELECT * FROM link
-            WHERE from_graph_id = {p}
-              AND to_node_id = {p}
+            WHERE CAST(from_graph_id AS VARCHAR) = {p}
+              AND CAST(to_node_id AS VARCHAR) = {p}
               AND is_disabled = FALSE
         """
         params: list = [graph_id, to_node_id]
         if link_type_id is not None:
-            sql += f" AND link_type_id = {p}"
+            sql += f" AND CAST(link_type_id AS VARCHAR) = {p}"
             params.append(link_type_id)
         cursor = conn.execute(sql, params)
         return _deserialise(cursor.fetchall(), [c[0] for c in cursor.description])
@@ -160,7 +160,7 @@ class LinkDAO:
             fields.append(f"updated_by = {p}"); values.append(actor_id)
         values.append(link_id)
         conn.execute(
-            f"UPDATE link SET {', '.join(fields)} WHERE link_id = {p}", values
+            f"UPDATE link SET {', '.join(fields)} WHERE CAST(link_id AS VARCHAR) = {p}", values
         )
 
     def get_all_for_node(self, conn, node_id: str) -> list[dict]:
@@ -170,7 +170,7 @@ class LinkDAO:
         """
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM link WHERE from_node_id = {p} OR to_node_id = {p}",
+            f"SELECT * FROM link WHERE CAST(from_node_id AS VARCHAR) = {p} OR CAST(to_node_id AS VARCHAR) = {p}",
             [node_id, node_id],
         )
         return _deserialise(cursor.fetchall(), [c[0] for c in cursor.description])
@@ -178,4 +178,4 @@ class LinkDAO:
     def delete(self, conn, link_id: str) -> None:
         """Hard delete. Service layer should write a DESTROY_LINK ledger entry first."""
         p = self.db.placeholder
-        conn.execute(f"DELETE FROM link WHERE link_id = {p}", [link_id])
+        conn.execute(f"DELETE FROM link WHERE CAST(link_id AS VARCHAR) = {p}", [link_id])

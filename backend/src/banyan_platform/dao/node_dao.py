@@ -57,13 +57,13 @@ class NodeDAO:
 
     def get(self, conn, node_id: str) -> dict | None:
         p = self.db.placeholder
-        cursor = conn.execute(f"SELECT * FROM node WHERE node_id = {p}", [node_id])
+        cursor = conn.execute(f"SELECT * FROM node WHERE CAST(node_id AS VARCHAR) = {p}", [node_id])
         return _row(cursor, cursor.fetchone())
 
     def get_by_source(self, conn, graph_id: str, source_id: str) -> dict | None:
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM node WHERE graph_id = {p} AND source_id = {p}",
+            f"SELECT * FROM node WHERE CAST(graph_id AS VARCHAR) = {p} AND source_id = {p}",
             [graph_id, source_id],
         )
         return _row(cursor, cursor.fetchone())
@@ -71,7 +71,7 @@ class NodeDAO:
     def list_by_graph(self, conn, graph_id: str) -> list[dict]:
         p = self.db.placeholder
         cursor = conn.execute(
-            f"SELECT * FROM node WHERE graph_id = {p} ORDER BY name", [graph_id]
+            f"SELECT * FROM node WHERE CAST(graph_id AS VARCHAR) = {p} ORDER BY name", [graph_id]
         )
         cols = [c[0] for c in cursor.description]
         result = []
@@ -112,9 +112,9 @@ class NodeDAO:
             fields.append(f"updated_by = {p}"); values.append(actor_id)
         values.append(node_id)
         conn.execute(
-            f"UPDATE node SET {', '.join(fields)} WHERE node_id = {p}", values
+            f"UPDATE node SET {', '.join(fields)} WHERE CAST(node_id AS VARCHAR) = {p}", values
         )
 
     def delete(self, conn, node_id: str) -> None:
         p = self.db.placeholder
-        conn.execute(f"DELETE FROM node WHERE node_id = {p}", [node_id])
+        conn.execute(f"DELETE FROM node WHERE CAST(node_id AS VARCHAR) = {p}", [node_id])

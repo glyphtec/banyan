@@ -66,7 +66,7 @@ class LookupDAO:
     def get_link_type(self, conn, link_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(
-            f"SELECT * FROM link_type WHERE link_type_id = {p}", [link_type_id]
+            f"SELECT * FROM link_type WHERE CAST(link_type_id AS VARCHAR) = {p}", [link_type_id]
         ))
 
     def get_link_type_root_family(self, conn, link_type_id: str) -> str | None:
@@ -82,7 +82,7 @@ class LookupDAO:
         for _ in range(20):  # Cycle guard
             cursor = conn.execute(
                 f"SELECT name, parent_link_type_id FROM link_type "
-                f"WHERE link_type_id = {p}",
+                f"WHERE CAST(link_type_id AS VARCHAR) = {p}",
                 [current_id],
             )
             row = cursor.fetchone()
@@ -91,7 +91,7 @@ class LookupDAO:
             name, parent_id = row[0], row[1]
             if parent_id is None:
                 return name
-            current_id = parent_id
+            current_id = str(parent_id)  # normalise uuid.UUID → str for next iteration
         return None  # Cycle protection fallback
 
     # ── node_type ─────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ class LookupDAO:
     def get_node_type(self, conn, node_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(
-            f"SELECT * FROM node_type WHERE node_type_id = {p}", [node_type_id]
+            f"SELECT * FROM node_type WHERE CAST(node_type_id AS VARCHAR) = {p}", [node_type_id]
         ))
 
     def get_node_type_by_name(self, conn, name: str) -> dict | None:
@@ -148,12 +148,12 @@ class LookupDAO:
         fields.append("updated_datetime = CURRENT_TIMESTAMP")
         values.append(link_type_id)
         conn.execute(
-            f"UPDATE link_type SET {', '.join(fields)} WHERE link_type_id = {p}", values
+            f"UPDATE link_type SET {', '.join(fields)} WHERE CAST(link_type_id AS VARCHAR) = {p}", values
         )
 
     def delete_link_type(self, conn, link_type_id: str) -> None:
         p = self.db.placeholder
-        conn.execute(f"DELETE FROM link_type WHERE link_type_id = {p}", [link_type_id])
+        conn.execute(f"DELETE FROM link_type WHERE CAST(link_type_id AS VARCHAR) = {p}", [link_type_id])
 
     def create_node_type(
         self,
@@ -188,12 +188,12 @@ class LookupDAO:
             return
         values.append(node_type_id)
         conn.execute(
-            f"UPDATE node_type SET {', '.join(fields)} WHERE node_type_id = {p}", values
+            f"UPDATE node_type SET {', '.join(fields)} WHERE CAST(node_type_id AS VARCHAR) = {p}", values
         )
 
     def delete_node_type(self, conn, node_type_id: str) -> None:
         p = self.db.placeholder
-        conn.execute(f"DELETE FROM node_type WHERE node_type_id = {p}", [node_type_id])
+        conn.execute(f"DELETE FROM node_type WHERE CAST(node_type_id AS VARCHAR) = {p}", [node_type_id])
 
     # ── banyan_actor ──────────────────────────────────────────────────────────
 

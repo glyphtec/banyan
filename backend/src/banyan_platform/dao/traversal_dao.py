@@ -53,7 +53,7 @@ class TraversalDAO:
         HIERARCHICAL links).  When None, all non-disabled links are followed.
         """
         p = self.db.placeholder
-        link_filter = f"AND l.link_type_id = {p}" if link_type_id is not None else ""
+        link_filter = f"AND CAST(l.link_type_id AS VARCHAR) = {p}" if link_type_id is not None else ""
         sql = f"""
             WITH RECURSIVE subtree AS (
                 -- Anchor: the root node itself
@@ -62,8 +62,8 @@ class TraversalDAO:
                     n.source_id, n.name, n.notes, n.metadata,
                     0 AS depth
                 FROM node n
-                WHERE n.node_id = {p}
-                  AND n.graph_id = {p}
+                WHERE CAST(n.node_id AS VARCHAR) = {p}
+                  AND CAST(n.graph_id AS VARCHAR) = {p}
 
                 UNION ALL
 
@@ -75,7 +75,7 @@ class TraversalDAO:
                 FROM node n
                 JOIN link l ON l.to_node_id = n.node_id
                 JOIN subtree st ON l.from_node_id = st.node_id
-                WHERE l.from_graph_id = {p}
+                WHERE CAST(l.from_graph_id AS VARCHAR) = {p}
                   AND l.is_disabled = FALSE
                   {link_filter}
             )
@@ -100,7 +100,7 @@ class TraversalDAO:
         In a polyhierarchical graph there may be multiple rows at each depth level.
         """
         p = self.db.placeholder
-        link_filter = f"AND l.link_type_id = {p}" if link_type_id is not None else ""
+        link_filter = f"AND CAST(l.link_type_id AS VARCHAR) = {p}" if link_type_id is not None else ""
         sql = f"""
             WITH RECURSIVE ancestors AS (
                 -- Anchor: the starting node (excluded from final result)
@@ -109,8 +109,8 @@ class TraversalDAO:
                     n.source_id, n.name, n.notes, n.metadata,
                     0 AS depth
                 FROM node n
-                WHERE n.node_id = {p}
-                  AND n.graph_id = {p}
+                WHERE CAST(n.node_id AS VARCHAR) = {p}
+                  AND CAST(n.graph_id AS VARCHAR) = {p}
 
                 UNION ALL
 
@@ -122,7 +122,7 @@ class TraversalDAO:
                 FROM node n
                 JOIN link l ON l.from_node_id = n.node_id
                 JOIN ancestors a ON l.to_node_id = a.node_id
-                WHERE l.from_graph_id = {p}
+                WHERE CAST(l.from_graph_id AS VARCHAR) = {p}
                   AND l.is_disabled = FALSE
                   {link_filter}
             )

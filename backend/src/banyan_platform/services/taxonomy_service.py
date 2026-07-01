@@ -170,18 +170,18 @@ class BanyanService:
                 raise KeyError(f"Graph '{graph_id}' not found.")
 
             cur = conn.execute(
-                f"DELETE FROM link WHERE from_graph_id = {p} OR to_graph_id = {p}",
+                f"DELETE FROM link WHERE CAST(from_graph_id AS VARCHAR) = {p} OR CAST(to_graph_id AS VARCHAR) = {p}",
                 [graph_id, graph_id],
             )
             links_deleted = cur.rowcount if cur.rowcount is not None else -1
 
             cur = conn.execute(
-                f"DELETE FROM node WHERE graph_id = {p}", [graph_id]
+                f"DELETE FROM node WHERE CAST(graph_id AS VARCHAR) = {p}", [graph_id]
             )
             nodes_deleted = cur.rowcount if cur.rowcount is not None else -1
 
             cur = conn.execute(
-                f"DELETE FROM banyan_ledger WHERE source_graph_id = {p}", [graph_id]
+                f"DELETE FROM banyan_ledger WHERE CAST(source_graph_id AS VARCHAR) = {p}", [graph_id]
             )
             ledger_deleted = cur.rowcount if cur.rowcount is not None else -1
 
@@ -565,7 +565,7 @@ class BanyanService:
 
             p = self.db.placeholder
             cursor = conn.execute(
-                f"SELECT * FROM link WHERE from_graph_id = {p} AND to_graph_id = {p}",
+                f"SELECT * FROM link WHERE CAST(from_graph_id AS VARCHAR) = {p} AND CAST(to_graph_id AS VARCHAR) = {p}",
                 [graph_id, graph_id],
             )
             cols = [c[0] for c in cursor.description]
@@ -577,7 +577,7 @@ class BanyanService:
             cross_links: list[dict] = []
             if include_cross_graph_links:
                 cursor2 = conn.execute(
-                    f"SELECT * FROM link WHERE from_graph_id = {p} AND to_graph_id != {p}",
+                    f"SELECT * FROM link WHERE CAST(from_graph_id AS VARCHAR) = {p} AND CAST(to_graph_id AS VARCHAR) != {p}",
                     [graph_id, graph_id],
                 )
                 cols2 = [c[0] for c in cursor2.description]
@@ -1432,7 +1432,7 @@ class BanyanService:
                 raise KeyError(f"Link type '{link_type_id}' not found.")
             p = self.db.placeholder
             child_count = conn.execute(
-                f"SELECT COUNT(*) FROM link_type WHERE parent_link_type_id = {p}",
+                f"SELECT COUNT(*) FROM link_type WHERE CAST(parent_link_type_id AS VARCHAR) = {p}",
                 [link_type_id],
             ).fetchone()[0]
             if child_count:
@@ -1441,7 +1441,7 @@ class BanyanService:
                     "Delete or re-parent them first."
                 )
             usage_count = conn.execute(
-                f"SELECT COUNT(*) FROM link WHERE link_type_id = {p}",
+                f"SELECT COUNT(*) FROM link WHERE CAST(link_type_id AS VARCHAR) = {p}",
                 [link_type_id],
             ).fetchone()[0]
             if usage_count:
@@ -1476,7 +1476,7 @@ class BanyanService:
                 raise KeyError(f"Node type '{node_type_id}' not found.")
             p = self.db.placeholder
             usage_count = conn.execute(
-                f"SELECT COUNT(*) FROM node WHERE node_type_id = {p}",
+                f"SELECT COUNT(*) FROM node WHERE CAST(node_type_id AS VARCHAR) = {p}",
                 [node_type_id],
             ).fetchone()[0]
             if usage_count:
