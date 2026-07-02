@@ -214,6 +214,42 @@ class BatchRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# BQL models
+# ---------------------------------------------------------------------------
+
+class BQLGraphRef(BaseModel):
+    name: str | None = None
+    id: str | None = None
+
+class BQLStep(BaseModel):
+    direction: str = "FROM"          # FROM | TO | WITH
+    link_types: list[str] = []       # empty = all types; "NAME!" = exact match
+    depth: int | None = None         # None = MAX_DEPTH_HARD
+    node_types: list[str] = []
+    graphs: list[str] = []           # empty = origin graph only; ["*"] = unrestricted
+    collect: bool = True
+
+class BQLResult(BaseModel):
+    format: str = "LINK_NODE"        # NODE | LINK_NODE
+    include_seed: bool = True
+    limit: int | None = None
+    verbose: bool = False
+
+class BQLQueryRequest(BaseModel):
+    graph: BQLGraphRef
+    starting: dict | None = None     # NodePredicate; None = root node
+    steps: list[BQLStep] | None = None  # None = default step (full traversal)
+    result: BQLResult = BQLResult()
+
+class BQLQueryResponse(BaseModel):
+    success: bool
+    seed_count: int
+    total_count: int
+    steps: list[dict] | None = None  # populated only when verbose=true
+    results: list[dict]
+
+
+# ---------------------------------------------------------------------------
 # Exception mapping
 # ---------------------------------------------------------------------------
 
@@ -620,5 +656,16 @@ def build_rest_router(service: BanyanService) -> APIRouter:
             return service.execute_batch(batch_dict, actor_id=actor_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    # -- BQL query -------------------------------------------------------------
+
+    @router.post("/query", response_model=BQLQueryResponse)
+    def execute_bql_query(body: BQLQueryRequest):
+        try:
+            return service.execute_bql(body.model_dump(exclude_none=False))
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
 
     return router

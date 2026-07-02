@@ -11,6 +11,7 @@ from banyan_platform.dao.ledger_dao import LedgerDAO
 from banyan_platform.dao.traversal_dao import TraversalDAO
 from banyan_platform.dao.lookup_dao import LookupDAO
 from banyan_platform.dao.snapshot_dao import SnapshotDAO
+from banyan_platform.dao.query_dao import QueryDAO
 
 if TYPE_CHECKING:
     from banyan_platform.persistence.connection import Database
@@ -47,6 +48,7 @@ class BanyanService:
         self.traversal = TraversalDAO(db)
         self.lookup = LookupDAO(db)
         self.snapshots = SnapshotDAO(db)
+        self.query_dao = QueryDAO(db)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -1525,3 +1527,223 @@ class BanyanService:
         """Re-compute and verify the global ledger hash chain. See LedgerDAO.verify_chain."""
         with self.db.connect() as conn:
             return self.ledger.verify_chain(conn)
+
+    # ── BQL query engine ─────────────────────────────────────────────────────
+
+    _MAX_SEED_SIZE = 500
+    _MAX_STEP_BUFFER = 5_000
+    _MAX_DEPTH_HARD = 50
+
+    def execute_bql(self, query: dict) -> dict:
+        """
+        Execute a BQL (Banyan Query Language) query.
+
+        query is the raw dict parsed from the POST /api/v1/query request body.
+        Returns a response envelope: {success, seed_count, total_count, steps, results}.
+        """
+        with self.db.connect() as conn:
+            return self._execute_bql_conn(conn, query)
+
+    def _execute_bql_conn(self, conn, query: dict) -> dict:
+        # ── 1. Resolve origin graph ───────────────────────────────────────────
+        graph_ref = query.get("graph", {})
+        if graph_ref.get("id"):
+            graph = self.graphs.get(conn, str(graph_ref["id"]))
+        elif graph_ref.get("name"):
+            graph = self.graphs.get_by_name(conn, str(graph_ref["name"]))
+        else:
+            raise ValueError("query.graph must specify 'name' or 'id'")
+        if graph is None:
+            raise KeyError(f"Graph not found: {graph_ref}")
+
+        origin_graph_id: str = graph["graph_id"]
+
+        # ── 2. Resolve result options ─────────────────────────────────────────
+        result_opts: dict = query.get("result") or {}
+        fmt: str = result_opts.get("format", "LINK_NODE")
+        include_seed: bool = result_opts.get("include_seed", True)
+        limit: int | None = result_opts.get("limit", None)
+        verbose: bool = result_opts.get("verbose", False)
+
+        # ── 3. Resolve seed nodes ─────────────────────────────────────────────
+        starting = query.get("starting")
+        if starting is None:
+            root_id = graph.get("root_node_id")
+            seed_nodes = [self.nodes.get(conn, root_id)] if root_id else []
+            seed_nodes = [n for n in seed_nodes if n is not None]
+        else:
+            seed_nodes = self.query_dao.resolve_seed(conn, origin_graph_id, starting)
+
+        seed_count = len(seed_nodes)
+        if seed_count > self._MAX_SEED_SIZE:
+            raise ValueError(
+                f"starting predicate matched {seed_count} nodes; "
+                f"exceeds MAX_SEED_SIZE={self._MAX_SEED_SIZE}. Narrow the predicate."
+            )
+
+        # ── 4. Initialize accumulators ────────────────────────────────────────
+        seen: set[str] = {n["node_id"] for n in seed_nodes}
+        # net_depth per node_id (0 = seed)
+        net_depths: dict[str, int] = {n["node_id"]: 0 for n in seed_nodes}
+        response_items: list[dict] = []
+        step_diagnostics: list[dict] = []
+
+        if include_seed:
+            for node in seed_nodes:
+                response_items.append(
+                    _make_result_item(node, step=0, depth=0, net_depth=0, direction=None, link=None, fmt=fmt)
+                )
+
+        # ── 5. Resolve and execute steps ──────────────────────────────────────
+        raw_steps: list[dict] = query.get("steps") or [
+            {"direction": "FROM"}
+        ]  # default step: full traversal from seed
+
+        step_buffer: list[dict] = list(seed_nodes)
+
+        for step_idx, step in enumerate(raw_steps, start=1):
+            direction: str = step.get("direction", "FROM").upper()
+            raw_link_types: list[str] = step.get("link_types") or []
+            depth_limit: int = min(
+                step.get("depth") or self._MAX_DEPTH_HARD,
+                self._MAX_DEPTH_HARD,
+            )
+            node_type_filter: list[str] = step.get("node_types") or []
+            graphs_filter: list[str] = step.get("graphs") or []
+            collect: bool = step.get("collect", True)
+
+            # Resolve allowed graph IDs for this step
+            if graphs_filter == ["*"]:
+                allowed_graph_ids = None  # No restriction
+            elif graphs_filter:
+                allowed_graph_ids = []
+                for gref in graphs_filter:
+                    g = self.graphs.get_by_name(conn, gref) or self.graphs.get(conn, gref)
+                    if g:
+                        allowed_graph_ids.append(g["graph_id"])
+            else:
+                allowed_graph_ids = [origin_graph_id]  # default: origin graph only
+
+            # Resolve link_type_ids (expand families unless ! suffix)
+            link_type_ids: list[str] | None = None
+            if raw_link_types:
+                link_type_ids = []
+                for lt_name in raw_link_types:
+                    exact = lt_name.endswith("!")
+                    name = lt_name.rstrip("!")
+                    if exact:
+                        lt = self.lookup.get_link_type_by_name(conn, name)
+                        if lt:
+                            link_type_ids.append(lt["link_type_id"])
+                    else:
+                        family = self.lookup.get_link_type_subtree(conn, name)
+                        link_type_ids.extend(lt["link_type_id"] for lt in family)
+
+            # Resolve node_type filter IDs
+            node_type_ids: set[str] = set()
+            for nt_name in node_type_filter:
+                nt = self.lookup.get_node_type_by_name(conn, nt_name)
+                if nt:
+                    node_type_ids.add(nt["node_type_id"])
+
+            # ── Iterative one-hop traversal within this step ──────────────────
+            current_frontier: list[dict] = step_buffer
+            step_output: list[dict] = []  # deduped output for this step
+            step_truncated = False
+
+            for hop in range(depth_limit):
+                if not current_frontier:
+                    break
+
+                frontier_ids = [n["node_id"] for n in current_frontier]
+                raw_hops = self.query_dao.execute_one_hop(
+                    conn,
+                    direction=direction,
+                    frontier_ids=frontier_ids,
+                    link_type_ids=link_type_ids,
+                    allowed_graph_ids=allowed_graph_ids,
+                )
+
+                new_frontier: list[dict] = []
+                for link_info, parent_id, node in raw_hops:
+                    node_id = node["node_id"]
+                    if node_id in seen:
+                        continue
+                    if node_type_ids and node["node_type_id"] not in node_type_ids:
+                        continue
+
+                    seen.add(node_id)
+                    parent_nd = net_depths.get(parent_id, 0)
+                    node_nd = parent_nd + 1
+                    net_depths[node_id] = node_nd
+
+                    new_frontier.append(node)
+                    step_output.append(node)
+
+                    if collect:
+                        response_items.append(
+                            _make_result_item(
+                                node,
+                                step=step_idx,
+                                depth=hop + 1,
+                                net_depth=node_nd,
+                                direction=link_info["traversal_direction"],
+                                link=link_info,
+                                fmt=fmt,
+                            )
+                        )
+
+                    if limit and len(response_items) >= limit:
+                        step_truncated = True
+                        break
+
+                if step_truncated:
+                    break
+
+                if not new_frontier:
+                    break  # Graph exhausted at this hop depth
+
+                if len(step_output) >= self._MAX_STEP_BUFFER:
+                    step_truncated = True
+                    break
+
+                current_frontier = new_frontier
+
+            if verbose:
+                step_diagnostics.append({
+                    "step": step_idx,
+                    "input_count": len(step_buffer),
+                    "output_count": len(step_output),
+                    "collected": collect,
+                    "truncated": step_truncated,
+                })
+
+            step_buffer = step_output  # output of this step feeds next step
+
+        return {
+            "success": True,
+            "seed_count": seed_count,
+            "total_count": len(response_items),
+            "steps": step_diagnostics if verbose else None,
+            "results": response_items,
+        }
+
+
+def _make_result_item(
+    node: dict,
+    step: int,
+    depth: int,
+    net_depth: int,
+    direction: str | None,
+    link: dict | None,
+    fmt: str,
+) -> dict:
+    base = {
+        "_step": step,
+        "_depth": depth,
+        "_net_depth": net_depth,
+        "_direction": direction,
+    }
+    if fmt == "NODE":
+        return {**base, **node}
+    return {**base, "link": link, "node": node}

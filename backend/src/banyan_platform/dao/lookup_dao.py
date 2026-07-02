@@ -63,6 +63,12 @@ class LookupDAO:
         """
         return _all_rows(conn.execute(sql, [root_name]))
 
+    def get_link_type_by_name(self, conn, name: str) -> dict | None:
+        p = self.db.placeholder
+        return _one_row(conn.execute(
+            f"SELECT * FROM link_type WHERE name = {p}", [name]
+        ))
+
     def get_link_type(self, conn, link_type_id: str) -> dict | None:
         p = self.db.placeholder
         return _one_row(conn.execute(

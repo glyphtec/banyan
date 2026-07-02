@@ -53,6 +53,13 @@ class GraphDAO:
         )
         return _row(cursor, cursor.fetchone())
 
+    def get_by_name(self, conn, name: str) -> dict | None:
+        p = self.db.placeholder
+        cursor = conn.execute(
+            f"SELECT * FROM graph WHERE name = {p}", [name]
+        )
+        return _row(cursor, cursor.fetchone())
+
     def list(self, conn) -> list[dict]:
         cursor = conn.execute("SELECT * FROM graph ORDER BY inserted_datetime")
         cols = [d[0] for d in cursor.description]
