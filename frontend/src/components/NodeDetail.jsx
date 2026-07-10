@@ -50,7 +50,7 @@ function LinksSection({ title, links, nodeMap, crossGraphNodeMap, currentNodeId,
                 ? <span className="link-name" onClick={() => onSelect(peer)}>{peer.name}</span>
                 : crossPeer
                   ? (
-                    <span style={{ fontStyle: 'italic' }}>
+                    <span className="link-name" style={{ fontStyle: 'italic' }} onClick={() => onSelect(crossPeer)}>
                       {crossPeer.name}
                       {graphMap?.[peerGraphId] && (
                         <span style={{ color: 'var(--text-dim)', fontSize: '11px', marginLeft: 4 }}>

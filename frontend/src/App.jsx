@@ -18,9 +18,11 @@ export function App() {
   const [status, setStatus]           = useState({ text: '', error: false })
   const [loadingGraph, setLoadingGraph] = useState(false)
   const [crossGraphNodeMap, setCrossGraphNodeMap] = useState({})
+  const [navHistory, setNavHistory]               = useState([])  // [{node_id, graph_id}]
   const [sidebarWidth, setSidebarWidth] = useState(320)
-  const nodeTreeRef = useRef(null)
-  const dragging = useRef(false)
+  const nodeTreeRef      = useRef(null)
+  const dragging         = useRef(false)
+  const pendingNodeIdRef = useRef(null)
 
   const onSplitterMouseDown = useCallback(e => {
     e.preventDefault()
@@ -68,6 +70,12 @@ export function App() {
           text: `${data.nodes.length} nodes · ${data.links.length} links${crossCount ? ` · ${crossCount} cross-graph` : ''}`,
           error: false,
         })
+        // Resolve any pending cross-graph navigation
+        if (pendingNodeIdRef.current) {
+          const pending = data.nodes.find(n => n.node_id === pendingNodeIdRef.current)
+          if (pending) setActiveNode(pending)
+          pendingNodeIdRef.current = null
+        }
       })
       .catch(err => setStatus({ text: err.message, error: true }))
       .finally(() => setLoadingGraph(false))
@@ -95,6 +103,35 @@ export function App() {
     () => Object.fromEntries(nodeTypes.map(t => [t.node_type_id, t.name])),
     [nodeTypes]
   )
+
+  // Navigate to a node, pushing the current position onto the back stack.
+  // Handles both same-graph (instant) and cross-graph (triggers graph switch + pending resolve).
+  const navigateToNode = useCallback((node) => {
+    if (activeNode) {
+      setNavHistory(prev => [...prev, { node_id: activeNode.node_id, graph_id: selectedGraphId }])
+    }
+    if (node.graph_id === selectedGraphId) {
+      setActiveNode(node)
+    } else {
+      pendingNodeIdRef.current = node.node_id
+      setSearchTerm('')
+      setSelected(node.graph_id)
+    }
+  }, [activeNode, selectedGraphId])
+
+  // Pop the back stack and navigate to the previous position.
+  const navigateBack = useCallback(() => {
+    if (navHistory.length === 0) return
+    const prev = navHistory[navHistory.length - 1]
+    setNavHistory(h => h.slice(0, -1))
+    if (prev.graph_id === selectedGraphId) {
+      setActiveNode(nodeMap[prev.node_id] ?? null)
+    } else {
+      pendingNodeIdRef.current = prev.node_id
+      setSearchTerm('')
+      setSelected(prev.graph_id)
+    }
+  }, [navHistory, selectedGraphId, nodeMap])
 
   // BQL: resolve names of cross-graph neighbor nodes whenever the active node changes
   useEffect(() => {
@@ -130,10 +167,15 @@ export function App() {
         <GraphPicker
           graphs={graphs}
           selectedId={selectedGraphId}
-          onSelect={id => { setSelected(id); setSearchTerm('') }}
+          onSelect={id => { setSelected(id); setSearchTerm(''); setNavHistory([]) }}
           loading={graphs.length === 0 && !status.error}
         />
         {loadingGraph && <div className="spinner" />}
+        {navHistory.length > 0 && (
+          <button className="nav-btn" onClick={navigateBack} title="Go back">
+            ← Back
+          </button>
+        )}
         <span className={`header-status${status.error ? ' error' : ''}`}>
           {status.text}
         </span>
@@ -165,7 +207,7 @@ export function App() {
             nodeCount={exportData?.nodes.length ?? 0}
             searchTerm={searchTerm}
             selectedId={activeNode?.node_id}
-            onSelect={setActiveNode}
+            onSelect={navigateToNode}
           />
         </aside>
 
@@ -180,7 +222,7 @@ export function App() {
           nodeTypeMap={nodeTypeMap}
           hierarchicalIds={hierarchicalIds}
           relatedIds={relatedIds}
-          onSelect={setActiveNode}
+          onSelect={navigateToNode}
         />
       </div>
     </>
