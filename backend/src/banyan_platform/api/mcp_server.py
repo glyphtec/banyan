@@ -527,6 +527,280 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         }
         return service.execute_batch(batch, actor_id=actor_id)
 
+    # ── BQL query tool ─────────────────────────────────────────────────────
+
+    @mcp.tool
+    def banyan_query(query: dict) -> dict:
+        """
+        Execute a BQL (Banyan Query Language) traversal query against the graph store.
+
+        Required:
+          graph — {"name": "..."} or {"id": "..."}
+
+        Optional:
+          starting — NodePredicate to seed the traversal (omit = use graph root)
+          steps    — list of traversal hops; omit = full FROM traversal from seed
+          result   — {"format": "LINK_NODE"|"NODE", "include_seed": bool, "limit": N}
+          verbose  — true to include per-step diagnostics in response
+
+        Each step supports:
+          direction  — "FROM" | "TO" | "WITH"
+          link_types — list of link type names, e.g. ["HIERARCHICAL", "SAME_AS"]
+          depth      — max hops within this step (default: unlimited)
+          collect    — whether to include results in output (default: true)
+          graphs     — graph names to restrict traversal, or ["*"] for all graphs
+
+        NodePredicate fields: name, name_contains, name_starts, source_id,
+        source_id_prefix, node_id, node_type, metadata.<path>.
+        Each field accepts a plain value or an operator dict:
+        {"eq"|"neq"|"contains"|"starts"|"gte"|"lte"|"in": value}.
+        Compound: {"and": [...]} / {"or": [...]}.
+
+        Response: {seed_count, total_count, results: [...], steps: [...] if verbose}
+        LINK_NODE result item: {_step, _depth, _net_depth, _direction, link: {...}, node: {...}}
+        NODE result item: {_step, _depth, _net_depth, _direction, ...node_fields}
+        Seed items have _step=0 and link=null.
+
+        Example — full graph export:
+          {"graph": {"name": "Open Eligibility"}}
+
+        Example — crosswalk gap analysis (Gravity nodes that have a SAME_AS link):
+          {"graph": {"name": "Gravity SDOH Clinical Care STU 2.3"},
+           "steps": [{"direction": "WITH",
+                      "link_types": ["SAME_AS", "SAME_AS_PROPOSED"],
+                      "depth": 1,
+                      "graphs": ["*"]}]}
+
+        Example — cross-graph HAS_MEMBER codes for a specific node:
+          {"graph": {"name": "Gravity SDOH Clinical Care STU 2.3"},
+           "starting": {"name": "Food Insecurity"},
+           "steps": [
+             {"direction": "FROM", "link_types": ["HIERARCHICAL"], "depth": 1, "collect": false},
+             {"direction": "FROM", "link_types": ["HAS_MEMBER"], "depth": 1, "graphs": ["*"]}
+           ]}
+        """
+        return service.execute_bql(query)
+
+    # ── Persona-1 crosswalk tools ───────────────────────────────────────────
+
+    @mcp.tool
+    def banyan_get_crosswalk_candidates(
+        gravity_node_name: str,
+        target_graph_name: str = "Open Eligibility",
+    ) -> dict:
+        """
+        Fetch the structured context needed to evaluate crosswalk candidates for a
+        Gravity SDOH L1 node against a target taxonomy (default: Open Eligibility).
+
+        Returns a crosswalk brief with five sections:
+          source_node          — Gravity L1 node (node_id, name, notes, source_id,
+                                 graph_id)
+          source_children      — L2 children (node_id, name, source_id)
+          source_codes         — HAS_MEMBER clinical codes from all L2 children
+                                 (node_id, name, source_id) — may span multiple
+                                 terminology graphs (SNOMED, ICD-10-CM, etc.)
+          target_nodes         — candidate L1+L2 nodes in the target graph;
+                                 each has node_id, name, source_id, graph_id,
+                                 depth (1=L1, 2=L2), and children (list of L3 names)
+          existing_crosswalk_links — any SAME_AS or SAME_AS_PROPOSED links already
+                                 on this source node (link_id, link_type, to_node)
+
+        The source_codes from clinical terminologies are the strongest matching
+        signal: code display names encode clinical meaning beyond taxonomy labels.
+
+        Use this data to reason about and rank candidate matches, then call
+        banyan_create_crosswalk_link to assert the chosen link(s).
+        If no candidates meet the two-signal threshold, report the gap explicitly.
+        """
+        GRAVITY_GRAPH = "Gravity SDOH Clinical Care STU 2.3"
+
+        # ── 1. Source context: seed node + L2 children + HAS_MEMBER codes ──
+        ctx = service.execute_bql({
+            "graph": {"name": GRAVITY_GRAPH},
+            "starting": {"name": gravity_node_name},
+            "steps": [
+                {
+                    "direction": "FROM",
+                    "link_types": ["HIERARCHICAL"],
+                    "depth": 1,
+                    "collect": True,
+                },
+                {
+                    "direction": "FROM",
+                    "link_types": ["HAS_MEMBER"],
+                    "depth": 1,
+                    "collect": True,
+                    "graphs": ["*"],
+                },
+            ],
+        })
+
+        if ctx["seed_count"] == 0:
+            return {"error": f"Gravity node not found: {gravity_node_name!r}"}
+
+        source_node = None
+        children: list[dict] = []
+        codes: list[dict] = []
+
+        for item in ctx["results"]:
+            node = item.get("node") or item
+            step = item["_step"]
+            if step == 0:
+                source_node = {
+                    "node_id": node["node_id"],
+                    "name": node["name"],
+                    "notes": node.get("notes"),
+                    "source_id": node["source_id"],
+                    "graph_id": node["graph_id"],
+                }
+            elif step == 1:
+                children.append({
+                    "node_id": node["node_id"],
+                    "name": node["name"],
+                    "source_id": node["source_id"],
+                })
+            elif step == 2:
+                codes.append({
+                    "node_id": node["node_id"],
+                    "name": node["name"],
+                    "source_id": node["source_id"],
+                })
+
+        # ── 2. Target candidate pool (L1 + L2 + L3 names as children) ──
+        oe = service.execute_bql({
+            "graph": {"name": target_graph_name},
+            "steps": [{
+                "direction": "FROM",
+                "link_types": ["HIERARCHICAL"],
+                "depth": 3,
+                "collect": True,
+            }],
+        })
+
+        child_names_by_parent: dict[str, list[str]] = {}
+        nodes_by_id: dict[str, dict] = {}
+        for item in oe["results"]:
+            if item["_step"] == 0:
+                continue  # skip graph root
+            node = item.get("node") or item
+            link = item.get("link") or {}
+            nid = node["node_id"]
+            nd = item["_net_depth"]
+            nodes_by_id[nid] = {
+                "node_id": nid,
+                "name": node["name"],
+                "source_id": node["source_id"],
+                "graph_id": node["graph_id"],
+                "depth": nd,
+            }
+            parent_id = link.get("from_node_id")
+            if parent_id:
+                child_names_by_parent.setdefault(parent_id, []).append(node["name"])
+
+        target_nodes = [
+            {**data, "children": child_names_by_parent.get(nid, [])}
+            for nid, data in nodes_by_id.items()
+            if data["depth"] <= 2
+        ]
+
+        # ── 3. Existing crosswalk links on this source node ──
+        ex = service.execute_bql({
+            "graph": {"name": GRAVITY_GRAPH},
+            "starting": {"name": gravity_node_name},
+            "steps": [{
+                "direction": "WITH",
+                "link_types": ["SAME_AS", "SAME_AS_PROPOSED"],
+                "depth": 1,
+                "collect": True,
+                "graphs": ["*"],
+            }],
+        })
+
+        existing_links = [
+            {
+                "link_id": (item.get("link") or {}).get("link_id"),
+                "link_type": (item.get("link") or {}).get("link_type_name"),
+                "to_node": {
+                    "node_id": (item.get("node") or {}).get("node_id"),
+                    "name": (item.get("node") or {}).get("name"),
+                },
+            }
+            for item in ex["results"]
+            if item["_step"] != 0
+        ]
+
+        return {
+            "source_node": source_node,
+            "source_children": children,
+            "source_codes": codes,
+            "target_graph": target_graph_name,
+            "target_nodes": target_nodes,
+            "existing_crosswalk_links": existing_links,
+        }
+
+    @mcp.tool
+    def banyan_create_crosswalk_link(
+        from_node_id: str,
+        to_node_id: str,
+        link_type_name: str,
+        rationale: str,
+        actor_id: str = _MCP_DEFAULT_ACTOR,
+        notes: str | None = None,
+    ) -> dict:
+        """
+        Create a typed crosswalk link between two nodes, with structured metadata.
+
+        link_type_name must be one of:
+          SAME_AS          — editorially confirmed equivalence between concepts
+                             in different graphs (link_provenance='asserted')
+          TERM_SIMILAR     — overlapping but not identical scope; use when SAME_AS
+                             overstates certainty (link_provenance='asserted')
+          SAME_AS_PROPOSED — agent-proposed candidate awaiting expert review
+                             (link_provenance='proposed')
+
+        rationale is required. Store the key evidence for and against the match
+        so the audit ledger captures the reasoning, not just the decision.
+        notes is optional free-text for scope caveats or reviewer annotations.
+
+        Graph IDs are resolved automatically from the node records — pass only
+        the node UUIDs from banyan_get_crosswalk_candidates output.
+
+        To promote a SAME_AS_PROPOSED to SAME_AS:
+          1. destroy_link(proposed_link_id)
+          2. banyan_create_crosswalk_link(..., link_type_name="SAME_AS")
+        Both steps share a transaction visible in the ledger.
+
+        Returns the created link dict.
+        """
+        _KNOWN: dict[str, tuple[str, str]] = {
+            "SAME_AS":          ("ba0ba000-0000-0000-0000-000000000011", "asserted"),
+            "TERM_SIMILAR":     ("ba0ba000-0000-0000-0000-000000000013", "asserted"),
+            "SAME_AS_PROPOSED": ("ba0ba000-0000-0000-0000-000000000016", "proposed"),
+        }
+        if link_type_name not in _KNOWN:
+            raise ValueError(
+                f"link_type_name must be one of {list(_KNOWN)}; got {link_type_name!r}"
+            )
+        link_type_id, provenance = _KNOWN[link_type_name]
+
+        # Resolve graph IDs from the nodes — agent only needs node UUIDs
+        from_node = service.get_node(from_node_id)
+        to_node = service.get_node(to_node_id)
+
+        metadata: dict = {"link_provenance": provenance, "agent_rationale": rationale}
+        if notes:
+            metadata["notes"] = notes
+
+        return service.create_link(
+            link_type_id=link_type_id,
+            from_graph_id=from_node["graph_id"],
+            to_graph_id=to_node["graph_id"],
+            from_node_id=from_node_id,
+            to_node_id=to_node_id,
+            actor_id=actor_id,
+            metadata=metadata,
+        )
+
     # ── Chain integrity ────────────────────────────────────────────────────
 
     @mcp.tool
