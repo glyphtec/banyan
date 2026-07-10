@@ -1152,6 +1152,492 @@
       ]
     },
     {
+      "name": "BQL Queries",
+      "description": "POST /api/v1/query — Banyan Query Language examples. Two sub-folders:\n\n• Toy Queries — pattern demonstrations against the Product Taxonomy graph built by 00 Happy Path. graph_id must be set in collection variables.\n\n• Gravity Queries — real-world crosswalk and traversal queries against the live Gravity SDOH / Open Eligibility / SNOMED CT SDOH / ICD-10-CM SDOH graphs. Requires ingest utilities to have been run against the dev database.",
+      "item": [
+        {
+          "name": "Toy Queries",
+          "description": "Six pattern demonstrations using the Product Taxonomy graph from 00 Happy Path. Run that folder first so graph_id, node_id_root, and node_id_child are set.",
+          "item": [
+            {
+              "name": "01 Full graph export (no starting, no steps)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Implicit seed = root node, implicit default step = FROM all types depth 50. Returns every node in the graph. Equivalent to GET /export."
+            },
+            {
+              "name": "02 Subtree from a named node",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  },\n  \"starting\": {\n    \"source_id\": \"ELECTRONICS\"\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Seed = Electronics node (created by Happy Path step 02). Default FROM traversal returns the full subtree rooted there."
+            },
+            {
+              "name": "03 Immediate children only (depth 1)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  },\n  \"starting\": {\n    \"source_id\": \"$\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "One hop FROM the root via HIERARCHICAL links only. Returns direct children; excludes the root itself."
+            },
+            {
+              "name": "04 Ancestor chain (TO direction)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  },\n  \"starting\": {\n    \"source_id\": \"SMARTPHONES\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"TO\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 99\n    }\n  ],\n  \"result\": {\n    \"format\": \"LINK_NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Walk inbound HIERARCHICAL links from Smartphones upward. Returns the full ancestor chain in hop order (closest parent first). Each result item contains the traversed link and the ancestor node."
+            },
+            {
+              "name": "05 Sibling nodes (zig-zag)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  },\n  \"starting\": {\n    \"source_id\": \"SMARTPHONES\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"TO\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": false\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Step 1: walk TO the parent (collect=false — used as waypoint only). Step 2: walk FROM the parent back down, reaching all siblings. The seed (Smartphones) is pre-added to the dedup set so it does not re-appear in step 2. Result: seed + siblings; parent never collected."
+            },
+            {
+              "name": "06 Compound AND predicate with metadata filter",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"id\": \"{{graph_id}}\"\n  },\n  \"starting\": {\n    \"and\": [\n      {\n        \"name_contains\": \"electronics\"\n      },\n      {\n        \"metadata.department_code\": \"EL\"\n      }\n    ]\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Seed nodes must satisfy both: name contains electronics (case-insensitive) AND metadata.department_code == EL. Updated by Happy Path step 07 to department_code EL. Demonstrates compound AND and metadata path predicates."
+            }
+          ]
+        },
+        {
+          "name": "Gravity Queries",
+          "description": "Twelve queries against the live Gravity SDOH / OE / SNOMED CT / ICD-10-CM graphs. Graph names used verbatim — they must match the ingest-generated names in the database.",
+          "item": [
+            {
+              "name": "01 All Gravity L1 social-risk domains",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"source_id\": \"$\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Returns all 28 top-level SDOH domains (Food Insecurity, Housing Instability, Elder Abuse, etc.). One hop from root."
+            },
+            {
+              "name": "02 Full domain subtree — Food Insecurity (L1 + 8 L2 activities)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Food Insecurity\"\n  },\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Seed = Food Insecurity (L1 domain). Default FROM traversal returns the domain and all its L2 activity nodes (Diagnoses, Goals, Procedures, Screening Assessments, etc.)."
+            },
+            {
+              "name": "03 L2 activities for Housing Instability (one hop)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Housing Instability\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Returns only the immediate L2 value-set activity nodes under Housing Instability. depth: 1 prevents descending further."
+            },
+            {
+              "name": "04 Peer domains of Food Insecurity (zig-zag siblings)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Food Insecurity\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"TO\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": false\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Step 1 walks TO the Gravity root (collect=false). Step 2 walks FROM the root back to all L1 domains. Result: Food Insecurity (seed, step 0) + all 27 peer domains (step 2). The root is never collected."
+            },
+            {
+              "name": "05 SNOMED codes for Food Insecurity (2-step crosswalk)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Food Insecurity\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": false\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HAS_MEMBER!\"\n      ],\n      \"graphs\": [\n        \"SNOMED CT SDOH Slice\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Two-step cross-graph traversal. Step 1: Food Insecurity → L2 activities (collect=false). Step 2: each L2 activity → its member SNOMED CT codes via HAS_MEMBER links. HAS_MEMBER! uses exact-type match (no family expansion)."
+            },
+            {
+              "name": "06 ICD-10-CM codes for Food Insecurity (2-step crosswalk)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Food Insecurity\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": false\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HAS_MEMBER!\"\n      ],\n      \"graphs\": [\n        \"ICD-10-CM SDOH Slice\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Same pattern as query 05 but targeting the ICD-10-CM SDOH Slice graph. Returns Z-codes and other ICD-10 codes mapped to Food Insecurity value sets (e.g. Z59.41, E63.9)."
+            },
+            {
+              "name": "07 All clinical codes for Food Insecurity — SNOMED + ICD-10 in one query",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Food Insecurity\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": false\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HAS_MEMBER!\"\n      ],\n      \"graphs\": [\n        \"SNOMED CT SDOH Slice\",\n        \"ICD-10-CM SDOH Slice\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"LINK_NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Combines queries 05 and 06 into a single request by listing both clinical graphs in the step. LINK_NODE format includes the HAS_MEMBER link (with from/to graph IDs) alongside each code node, making it easy to identify which code system each result came from."
+            },
+            {
+              "name": "08 Reverse lookup — Gravity activities referencing a SNOMED code",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"SNOMED CT SDOH Slice\"\n  },\n  \"starting\": {\n    \"name\": \"Food insecurity (finding)\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"TO\",\n      \"link_types\": [\n        \"HAS_MEMBER!\"\n      ],\n      \"graphs\": [\n        \"Gravity SDOH Clinical Care STU 2.3\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"LINK_NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Starts in the SNOMED CT graph. Walks inbound HAS_MEMBER links (TO direction) to find which Gravity L2 activity nodes claim this code as a member. Answers: which Gravity value sets contain SNOMED code 73438004? Seed (the SNOMED node) is included for context."
+            },
+            {
+              "name": "09 Open Eligibility — full taxonomy",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Open Eligibility\"\n  },\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": false\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Full export of the Open Eligibility taxonomy (~289 nodes). No starting = root seed; default FROM step traverses all 290 nodes; include_seed=false drops the $ sentinel. Use limit to page large results."
+            },
+            {
+              "name": "10 Open Eligibility — Food branch subtree",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Open Eligibility\"\n  },\n  \"starting\": {\n    \"name\": \"Food\"\n  },\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Subtree rooted at the OE top-level Food category. Returns Food and all its descendant service/program types. Seed is included so the root of the subtree is visible in the result."
+            },
+            {
+              "name": "11 ICD-10-CM Z59.x — housing and economic social determinants",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"ICD-10-CM SDOH Slice\"\n  },\n  \"starting\": {\n    \"source_id_prefix\": \"http://hl7.org/fhir/sid/icd-10-cm|Z59\"\n  },\n  \"result\": {\n    \"format\": \"NODE\",\n    \"include_seed\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Finds all ICD-10-CM codes in the Z59 block (Problems related to housing and economic circumstances: housing instability, homelessness, inadequate food, etc.). source_id_prefix matches the FHIR-canonical code URI. Default step traverses any outbound links from those nodes (likely none — leaf codes)."
+            },
+            {
+              "name": "12 Verbose multi-hop diagnostic — Housing Instability → activities → clinical codes",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"graph\": {\n    \"name\": \"Gravity SDOH Clinical Care STU 2.3\"\n  },\n  \"starting\": {\n    \"name\": \"Housing Instability\"\n  },\n  \"steps\": [\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HIERARCHICAL\"\n      ],\n      \"depth\": 1,\n      \"collect\": true\n    },\n    {\n      \"direction\": \"FROM\",\n      \"link_types\": [\n        \"HAS_MEMBER!\"\n      ],\n      \"graphs\": [\n        \"SNOMED CT SDOH Slice\",\n        \"ICD-10-CM SDOH Slice\"\n      ],\n      \"depth\": 1\n    }\n  ],\n  \"result\": {\n    \"format\": \"LINK_NODE\",\n    \"include_seed\": true,\n    \"verbose\": true\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/query",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "query"
+                  ]
+                }
+              },
+              "description": "Full pipeline with verbose=true. Response envelope includes steps[] diagnostics: per-step input_count, output_count, collected, and truncated flags. Useful for debugging large multi-hop queries. Step 1 collects L2 activities (unlike queries 05-07 where they are skipped); step 2 appends clinical codes from both terminology graphs."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Error Cases",
       "description": "Requests that should return 4xx — useful for verifying error handling.",
       "item": [
