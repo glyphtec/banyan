@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import './App.css'
-import { listGraphs, exportGraph, getLinkTypes, getNodeTypes } from './api'
+import { listGraphs, exportGraph, getLinkTypes, getNodeTypes, bqlQuery } from './api'
 import { buildHierarchicalFamily, buildTree } from './treeUtils'
 import { GraphPicker } from './components/GraphPicker'
 import { NodeTree } from './components/NodeTree'
@@ -17,6 +17,7 @@ export function App() {
   const [activeNode, setActiveNode]   = useState(null)
   const [status, setStatus]           = useState({ text: '', error: false })
   const [loadingGraph, setLoadingGraph] = useState(false)
+  const [crossGraphNodeMap, setCrossGraphNodeMap] = useState({})
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const nodeTreeRef = useRef(null)
   const dragging = useRef(false)
@@ -95,6 +96,24 @@ export function App() {
     [nodeTypes]
   )
 
+  // BQL: resolve names of cross-graph neighbor nodes whenever the active node changes
+  useEffect(() => {
+    setCrossGraphNodeMap({})
+    if (!activeNode || !selectedGraphId) return
+    bqlQuery({
+      graph: { id: selectedGraphId },
+      starting: { node_id: activeNode.node_id },
+      steps: [{ direction: 'WITH', depth: 1, graphs: ['*'] }],
+      result: { format: 'NODE', include_seed: false },
+    })
+      .then(data => {
+        const map = {}
+        for (const item of data.results) map[item.node_id] = item
+        setCrossGraphNodeMap(map)
+      })
+      .catch(() => {}) // silent — UUID fallback still renders
+  }, [activeNode, selectedGraphId])
+
   // All links touching the active node (for detail panel) — includes cross-graph links
   const activeLinks = useMemo(() => {
     if (!activeNode || !exportData) return []
@@ -156,6 +175,7 @@ export function App() {
           node={activeNode}
           links={activeLinks}
           nodeMap={nodeMap}
+          crossGraphNodeMap={crossGraphNodeMap}
           graphMap={graphMap}
           nodeTypeMap={nodeTypeMap}
           hierarchicalIds={hierarchicalIds}

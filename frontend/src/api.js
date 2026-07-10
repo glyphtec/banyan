@@ -4,7 +4,18 @@ async function _get(path) {
   return r.json()
 }
 
+async function _post(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`POST ${path} → ${r.status} ${r.statusText}`)
+  return r.json()
+}
+
 export const listGraphs   = ()         => _get('/api/v1/graphs')
 export const exportGraph  = (graphId)  => _get(`/api/v1/graphs/${graphId}/export?include_cross_graph_links=true`)
 export const getLinkTypes = (root)     => _get(`/api/v1/link-types${root ? `?root=${encodeURIComponent(root)}` : ''}`)
 export const getNodeTypes = ()         => _get('/api/v1/node-types')
+export const bqlQuery     = (body)     => _post('/api/v1/query', body)
