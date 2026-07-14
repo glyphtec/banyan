@@ -73,7 +73,10 @@ export function App() {
         // Resolve any pending cross-graph navigation
         if (pendingNodeIdRef.current) {
           const pending = data.nodes.find(n => n.node_id === pendingNodeIdRef.current)
-          if (pending) setActiveNode(pending)
+          if (pending) {
+            setActiveNode(pending)
+            nodeTreeRef.current?.revealNode(pending.node_id, 150)
+          }
           pendingNodeIdRef.current = null
         }
       })
@@ -112,6 +115,7 @@ export function App() {
     }
     if (node.graph_id === selectedGraphId) {
       setActiveNode(node)
+      nodeTreeRef.current?.revealNode(node.node_id)
     } else {
       pendingNodeIdRef.current = node.node_id
       setSearchTerm('')
@@ -125,7 +129,9 @@ export function App() {
     const prev = navHistory[navHistory.length - 1]
     setNavHistory(h => h.slice(0, -1))
     if (prev.graph_id === selectedGraphId) {
-      setActiveNode(nodeMap[prev.node_id] ?? null)
+      const node = nodeMap[prev.node_id] ?? null
+      setActiveNode(node)
+      if (node) nodeTreeRef.current?.revealNode(prev.node_id)
     } else {
       pendingNodeIdRef.current = prev.node_id
       setSearchTerm('')

@@ -29,6 +29,13 @@ export const NodeTree = forwardRef(function NodeTree(
   useImperativeHandle(ref, () => ({
     collapseAll: () => treeRef.current?.closeAll?.(),
     expandAll:   () => treeRef.current?.openAll?.(),
+    revealNode:  (id, delay = 50) => {
+      if (!id || !treeRef.current) return
+      setTimeout(() => {
+        treeRef.current?.openParents?.(id)
+        treeRef.current?.scrollTo?.(id, 'center')
+      }, delay)
+    },
   }))
 
   // When search is cleared and a node is pinned, open its ancestor path and scroll to it.
