@@ -22,7 +22,8 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const nodeTreeRef      = useRef(null)
   const dragging         = useRef(false)
-  const pendingNodeIdRef = useRef(null)
+  const pendingNodeIdRef    = useRef(null)
+  const pendingRevealIdRef  = useRef(null)
 
   const onSplitterMouseDown = useCallback(e => {
     e.preventDefault()
@@ -75,7 +76,7 @@ export function App() {
           const pending = data.nodes.find(n => n.node_id === pendingNodeIdRef.current)
           if (pending) {
             setActiveNode(pending)
-            nodeTreeRef.current?.revealNode(pending.node_id, 150)
+            // revealNode is driven by the activeNode useEffect below
           }
           pendingNodeIdRef.current = null
         }
@@ -107,6 +108,14 @@ export function App() {
     [nodeTypes]
   )
 
+  // Reveal the active node in the tree whenever programmatic navigation sets it.
+  // pendingRevealIdRef is set by navigateToNode / navigateBack before calling setActiveNode.
+  useEffect(() => {
+    if (!activeNode || pendingRevealIdRef.current !== activeNode.node_id) return
+    pendingRevealIdRef.current = null
+    nodeTreeRef.current?.revealNode(activeNode.node_id)
+  }, [activeNode])
+
   // Navigate to a node, pushing the current position onto the back stack.
   // Handles both same-graph (instant) and cross-graph (triggers graph switch + pending resolve).
   const navigateToNode = useCallback((node) => {
@@ -114,9 +123,10 @@ export function App() {
       setNavHistory(prev => [...prev, { node_id: activeNode.node_id, graph_id: selectedGraphId }])
     }
     if (node.graph_id === selectedGraphId) {
+      pendingRevealIdRef.current = node.node_id
       setActiveNode(node)
-      nodeTreeRef.current?.revealNode(node.node_id)
     } else {
+      pendingRevealIdRef.current = node.node_id
       pendingNodeIdRef.current = node.node_id
       setSearchTerm('')
       setSelected(node.graph_id)
@@ -130,9 +140,10 @@ export function App() {
     setNavHistory(h => h.slice(0, -1))
     if (prev.graph_id === selectedGraphId) {
       const node = nodeMap[prev.node_id] ?? null
+      if (node) pendingRevealIdRef.current = node.node_id
       setActiveNode(node)
-      if (node) nodeTreeRef.current?.revealNode(prev.node_id)
     } else {
+      pendingRevealIdRef.current = prev.node_id
       pendingNodeIdRef.current = prev.node_id
       setSearchTerm('')
       setSelected(prev.graph_id)

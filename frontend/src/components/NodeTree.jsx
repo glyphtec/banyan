@@ -29,12 +29,14 @@ export const NodeTree = forwardRef(function NodeTree(
   useImperativeHandle(ref, () => ({
     collapseAll: () => treeRef.current?.closeAll?.(),
     expandAll:   () => treeRef.current?.openAll?.(),
-    revealNode:  (id, delay = 50) => {
-      if (!id || !treeRef.current) return
-      setTimeout(() => {
+    // Double rAF: first frame lets React commit the new tree data;
+    // second frame lets react-arborist update its virtual list before we scroll.
+    revealNode:  (id) => {
+      if (!id) return
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         treeRef.current?.openParents?.(id)
         treeRef.current?.scrollTo?.(id, 'center')
-      }, delay)
+      }))
     },
   }))
 
