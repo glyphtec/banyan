@@ -5,6 +5,7 @@ import { buildHierarchicalFamily, buildTree } from './treeUtils'
 import { GraphPicker } from './components/GraphPicker'
 import { NodeTree } from './components/NodeTree'
 import { NodeDetail } from './components/NodeDetail'
+import { ChatPanel } from './components/ChatPanel'
 
 export function App() {
   const [graphs, setGraphs]           = useState([])
@@ -19,11 +20,16 @@ export function App() {
   const [loadingGraph, setLoadingGraph] = useState(false)
   const [crossGraphNodeMap, setCrossGraphNodeMap] = useState({})
   const [navHistory, setNavHistory]               = useState([])  // [{node_id, graph_id}]
+  const [chatOpen, setChatOpen]   = useState(false)
+  const [chatWidth, setChatWidth] = useState(360)
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const nodeTreeRef      = useRef(null)
   const dragging         = useRef(false)
+  const draggingChat     = useRef(false)
   const pendingNodeIdRef    = useRef(null)
   const pendingRevealIdRef  = useRef(null)
+  // Stable session ID for the agent (survives re-renders, reset on page reload)
+  const sessionId = useRef(Math.random().toString(36).slice(2)).current
 
   const onSplitterMouseDown = useCallback(e => {
     e.preventDefault()
@@ -34,6 +40,23 @@ export function App() {
     }
     const onUp = () => {
       dragging.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  const onChatSplitterMouseDown = useCallback(e => {
+    e.preventDefault()
+    draggingChat.current = true
+    const onMove = ev => {
+      if (!draggingChat.current) return
+      const right = window.innerWidth - ev.clientX
+      setChatWidth(Math.min(Math.max(right, 240), window.innerWidth * 0.6))
+    }
+    const onUp = () => {
+      draggingChat.current = false
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
@@ -196,6 +219,13 @@ export function App() {
             ← Back
           </button>
         )}
+        <button
+          className={`nav-btn${chatOpen ? ' nav-btn-active' : ''}`}
+          onClick={() => setChatOpen(o => !o)}
+          title={chatOpen ? 'Close agent panel' : 'Open agent panel'}
+        >
+          ✨ Agent
+        </button>
         <span className={`header-status${status.error ? ' error' : ''}`}>
           {status.text}
         </span>
@@ -244,6 +274,23 @@ export function App() {
           relatedIds={relatedIds}
           onSelect={navigateToNode}
         />
+
+        {chatOpen && (
+          <>
+            <div className="splitter" onMouseDown={onChatSplitterMouseDown} />
+            <ChatPanel
+              sessionId={sessionId}
+              context={{
+                graph_id:       selectedGraphId,
+                graph_name:     exportData?.graph?.name ?? null,
+                node_id:        activeNode?.node_id ?? null,
+                node_name:      activeNode?.name ?? null,
+                node_source_id: activeNode?.source_id ?? null,
+              }}
+              style={{ width: chatWidth }}
+            />
+          </>
+        )}
       </div>
     </>
   )

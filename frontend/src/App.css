@@ -105,6 +105,186 @@ body {
   color: var(--accent);
   border-color: var(--accent);
 }
+.nav-btn-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Agent chat panel ── */
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.agent-context {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.agent-clear-btn:hover { color: var(--accent); }
+
+.agent-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-msg { display: flex; flex-direction: column; gap: 4px; }
+.agent-msg-user  { align-items: flex-end; }
+.agent-msg-assistant { align-items: flex-start; }
+.agent-bubble {
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-width: 95%;
+}
+.agent-msg-user .agent-bubble {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px 10px 3px 10px;
+}
+.agent-msg-assistant .agent-bubble {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px 10px 10px 3px;
+}
+.agent-msg-err .agent-bubble { border-color: #e05c5c; color: #e05c5c; }
+
+/* Tool call pills */
+.agent-tools { display: flex; flex-direction: column; gap: 3px; max-width: 95%; }
+.agent-tool-pill {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+}
+.agent-tool-error { border-color: #e05c5c55; }
+.agent-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.agent-tool-summary:hover { color: var(--text); }
+.agent-tool-icon { font-size: 10px; }
+.agent-tool-name { flex: 1; text-align: left; font-family: var(--mono); }
+.agent-tool-chevron { font-size: 9px; }
+.agent-tool-detail { padding: 6px 8px; border-top: 1px solid var(--border); }
+.agent-tool-section { margin-bottom: 6px; }
+.agent-tool-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.agent-tool-detail pre {
+  margin: 0;
+  font-size: 10px;
+  max-height: 160px;
+  overflow-y: auto;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+}
+
+/* Thinking dots */
+.agent-thinking {
+  display: flex;
+  gap: 5px;
+  padding: 10px 14px;
+}
+.agent-thinking span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: agent-bounce 1.2s ease-in-out infinite;
+}
+.agent-thinking span:nth-child(2) { animation-delay: 0.2s; }
+.agent-thinking span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes agent-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-5px); opacity: 1; }
+}
+
+/* Input area */
+.agent-input-area {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.agent-input-area textarea {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  line-height: 1.4;
+}
+.agent-input-area textarea:focus { border-color: var(--accent); }
+.agent-input-area textarea:disabled { opacity: 0.5; }
+.agent-send-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.agent-send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── Main body ── */
 .workspace {
