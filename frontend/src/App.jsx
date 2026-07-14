@@ -119,6 +119,9 @@ export function App() {
   // Navigate to a node, pushing the current position onto the back stack.
   // Handles both same-graph (instant) and cross-graph (triggers graph switch + pending resolve).
   const navigateToNode = useCallback((node) => {
+    // No-op if already on this node — prevents spurious re-entry from TreeApi.select()
+    // triggering the onSelect callback after a programmatic reveal.
+    if (activeNode?.node_id === node.node_id && selectedGraphId === node.graph_id) return
     if (activeNode) {
       setNavHistory(prev => [...prev, { node_id: activeNode.node_id, graph_id: selectedGraphId }])
     }
