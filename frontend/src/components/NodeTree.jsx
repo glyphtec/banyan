@@ -53,6 +53,16 @@ export const NodeTree = forwardRef(function NodeTree(
     }
   }, [searchTerm, selectedId])
 
+  // After a graph switch treeData is replaced entirely.  React-arborist re-initialises
+  // its internal node map from the new data and loses the controlled selection prop.
+  // Re-apply the selection explicitly once the new tree has settled.
+  useEffect(() => {
+    if (!selectedId || !treeRef.current) return
+    requestAnimationFrame(() => {
+      treeRef.current?.select?.(selectedId)
+    })
+  }, [treeData])
+
   useLayoutEffect(() => {
     const el = wrapRef.current
     if (!el) return
