@@ -34,6 +34,7 @@ export const NodeTree = forwardRef(function NodeTree(
     revealNode:  (id) => {
       if (!id) return
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        treeRef.current?.select?.(id)        // sync internal selection state
         treeRef.current?.openParents?.(id)
         treeRef.current?.scrollTo?.(id, 'center')
       }))
