@@ -207,6 +207,55 @@ def test_rest_restore_snapshot(client):
 
 
 # ---------------------------------------------------------------------------
+# Clone
+# ---------------------------------------------------------------------------
+
+def test_clone_creates_new_graph(service):
+    g, parent, child, link, _ = _make_graph_with_nodes(service, "OriginalGraph")
+    clone = service.clone_graph(g["graph_id"], new_name="ClonedGraph", actor_id=ACTOR)
+    assert clone["name"] == "ClonedGraph"
+    assert clone["graph_id"] != g["graph_id"]
+
+
+def test_clone_preserves_nodes(service):
+    g, parent, child, link, _ = _make_graph_with_nodes(service)
+    clone = service.clone_graph(g["graph_id"], new_name="NodeClone", actor_id=ACTOR)
+    nodes = service.list_nodes(clone["graph_id"])
+    source_ids = {n["source_id"] for n in nodes}
+    assert "PARENT-01" in source_ids
+    assert "CHILD-01" in source_ids
+
+
+def test_clone_preserves_links(service):
+    g, parent, child, link, lt_id = _make_graph_with_nodes(service)
+    clone = service.clone_graph(g["graph_id"], new_name="LinkClone", actor_id=ACTOR)
+    nodes = service.list_nodes(clone["graph_id"])
+    node_map = {n["source_id"]: n for n in nodes}
+    from banyan_platform.dao.link_dao import LinkDAO
+    with service.db.connect() as conn:
+        links = LinkDAO(service.db).get_all_for_node(conn, node_map["PARENT-01"]["node_id"])
+    assert any(lk["link_type_id"] == lt_id for lk in links)
+
+
+def test_clone_unknown_source_raises(service):
+    with pytest.raises(KeyError):
+        service.clone_graph("ffffffff-ffff-ffff-ffff-ffffffffffff", "X", actor_id=ACTOR)
+
+
+def test_rest_clone_graph(client):
+    g = client.post("/api/v1/graphs", json={"name": "CloneSource"}, headers={"X-Actor-Id": "test-actor"}).json()
+    gid = g["graph_id"]
+    client.post(f"/api/v1/graphs/{gid}/nodes",
+                json={"source_id": "N1", "name": "Node One"}, headers={"X-Actor-Id": "test-actor"})
+    r = client.post(f"/api/v1/graphs/{gid}/clone",
+                    json={"new_name": "CloneDest"}, headers={"X-Actor-Id": "test-actor"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["name"] == "CloneDest"
+    assert body["graph_id"] != gid
+
+
+# ---------------------------------------------------------------------------
 # Diff
 # ---------------------------------------------------------------------------
 

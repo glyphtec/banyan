@@ -182,6 +182,51 @@ CREATE TABLE IF NOT EXISTS graph_snapshot (
     inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_snapshot_version UNIQUE (graph_id, version_label)
 );
+
+-- ============================================================================
+-- PART 4: STAKEHOLDER REGISTRY
+-- Tracks which humans / orgs have governance interest in graphs and nodes.
+-- V1 uses on-demand CTE traversal for reverse resolution (no closure table).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS stakeholder (
+    stakeholder_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name              VARCHAR(200) NOT NULL,
+    org               VARCHAR(200),
+    contact_ref       VARCHAR(500),              -- Opaque: email, URL, Slack handle, etc.
+    actor_id          UUID,                      -- Loose link to banyan_actor; no FK enforced
+    notes             TEXT,
+    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_datetime  TIMESTAMPTZ,
+    CONSTRAINT uq_stakeholder_name UNIQUE (name)
+);
+
+CREATE TABLE IF NOT EXISTS graph_stakeholder (
+    -- Attaches a stakeholder to an entire graph.
+    graph_id          UUID NOT NULL REFERENCES graph(graph_id),
+    stakeholder_id    UUID NOT NULL REFERENCES stakeholder(stakeholder_id),
+    role              VARCHAR(50) NOT NULL,      -- OWNER | WATCHER | APPROVER
+    notes             TEXT,
+    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (graph_id, stakeholder_id)
+);
+
+CREATE TABLE IF NOT EXISTS node_stakeholder (
+    -- Attaches a stakeholder to a node with a configurable scope.
+    node_id           UUID NOT NULL,             -- No FK: node may be in any graph
+    stakeholder_id    UUID NOT NULL REFERENCES stakeholder(stakeholder_id),
+    role              VARCHAR(50) NOT NULL,      -- OWNER | WATCHER | APPROVER
+    -- Scope determines how far the interest radiates from the attachment point:
+    --   NODE_ONLY  — only the exact node
+    --   SUBGRAPH   — the node and all its descendants (via HIERARCHICAL links)
+    --   ANCESTORS  — the node and all its ancestors  (via HIERARCHICAL links)
+    scope             VARCHAR(20) NOT NULL DEFAULT 'NODE_ONLY',
+    scope_depth       INTEGER,                   -- NULL = unlimited; bounded traversal (V1.1)
+    scope_link_type_id UUID REFERENCES link_type(link_type_id),  -- NULL = HIERARCHICAL only
+    notes             TEXT,
+    inserted_datetime TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (node_id, stakeholder_id)
+);
 """
 
 # Idempotent seed data for lookup tables.

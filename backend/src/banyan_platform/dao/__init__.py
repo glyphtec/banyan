@@ -5,8 +5,9 @@ from banyan_platform.dao.ledger_dao import LedgerDAO
 from banyan_platform.dao.traversal_dao import TraversalDAO
 from banyan_platform.dao.lookup_dao import LookupDAO
 from banyan_platform.dao.snapshot_dao import SnapshotDAO
+from banyan_platform.dao.stakeholder_dao import StakeholderDAO
 
 __all__ = [
     "GraphDAO", "NodeDAO", "LinkDAO", "LedgerDAO",
-    "TraversalDAO", "LookupDAO", "SnapshotDAO",
+    "TraversalDAO", "LookupDAO", "SnapshotDAO", "StakeholderDAO",
 ]

@@ -12,6 +12,7 @@ from banyan_platform.dao.traversal_dao import TraversalDAO
 from banyan_platform.dao.lookup_dao import LookupDAO
 from banyan_platform.dao.snapshot_dao import SnapshotDAO
 from banyan_platform.dao.query_dao import QueryDAO
+from banyan_platform.dao.stakeholder_dao import StakeholderDAO
 
 if TYPE_CHECKING:
     from banyan_platform.persistence.connection import Database
@@ -49,6 +50,8 @@ class BanyanService:
         self.lookup = LookupDAO(db)
         self.snapshots = SnapshotDAO(db)
         self.query_dao = QueryDAO(db)
+        self.stakeholders = StakeholderDAO(db)
+        self.stakeholders = StakeholderDAO(db)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -776,6 +779,23 @@ class BanyanService:
                 )
 
             return self.graphs.get(conn, target_graph_id)
+
+    def clone_graph(
+        self,
+        source_graph_id: str,
+        new_name: str,
+        actor_id: str,
+    ) -> dict:
+        """
+        Duplicate a graph under a new name.
+
+        Exports the source graph (intra-graph links only — cross-graph links are
+        not cloned; the clone starts as a standalone graph) and re-imports it as
+        a fresh graph with ``new_name``.  Source-id uniqueness and node ordering
+        are preserved.  Returns the new graph dict.
+        """
+        export_doc = self.export_graph(source_graph_id, include_cross_graph_links=False)
+        return self.import_graph(export_doc, actor_id=actor_id, new_name=new_name)
 
     def diff_graphs(
         self,
@@ -1527,6 +1547,124 @@ class BanyanService:
         """Re-compute and verify the global ledger hash chain. See LedgerDAO.verify_chain."""
         with self.db.connect() as conn:
             return self.ledger.verify_chain(conn)
+
+    # -- Stakeholder registry -------------------------------------------------
+
+    def create_stakeholder(
+        self,
+        name: str,
+        org: str | None = None,
+        contact_ref: str | None = None,
+        actor_id: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        with self.db.connect() as conn:
+            sid = self.stakeholders.insert(
+                conn, name=name, org=org,
+                contact_ref=contact_ref, actor_id=actor_id, notes=notes,
+            )
+            result = self.stakeholders.get(conn, sid)
+        if result is None:
+            raise RuntimeError("Stakeholder insert failed.")
+        return result
+
+    def get_stakeholder(self, stakeholder_id: str) -> dict:
+        with self.db.connect() as conn:
+            s = self.stakeholders.get(conn, stakeholder_id)
+        if s is None:
+            raise KeyError(f"Stakeholder '{stakeholder_id}' not found.")
+        return s
+
+    def list_stakeholders(self) -> list[dict]:
+        with self.db.connect() as conn:
+            return self.stakeholders.list(conn)
+
+    def update_stakeholder(
+        self,
+        stakeholder_id: str,
+        name: str | None = None,
+        org: str | None = None,
+        contact_ref: str | None = None,
+        actor_id: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        with self.db.connect() as conn:
+            if self.stakeholders.get(conn, stakeholder_id) is None:
+                raise KeyError(f"Stakeholder '{stakeholder_id}' not found.")
+            self.stakeholders.update(
+                conn, stakeholder_id,
+                name=name, org=org, contact_ref=contact_ref,
+                actor_id=actor_id, notes=notes,
+            )
+            return self.stakeholders.get(conn, stakeholder_id)
+
+    def delete_stakeholder(self, stakeholder_id: str) -> None:
+        with self.db.connect() as conn:
+            if self.stakeholders.get(conn, stakeholder_id) is None:
+                raise KeyError(f"Stakeholder '{stakeholder_id}' not found.")
+            self.stakeholders.delete(conn, stakeholder_id)
+
+    def attach_stakeholder_to_graph(
+        self, graph_id: str, stakeholder_id: str, role: str, notes: str | None = None
+    ) -> None:
+        with self.db.connect() as conn:
+            if self.graphs.get(conn, graph_id) is None:
+                raise KeyError(f"Graph '{graph_id}' not found.")
+            if self.stakeholders.get(conn, stakeholder_id) is None:
+                raise KeyError(f"Stakeholder '{stakeholder_id}' not found.")
+            self.stakeholders.attach_to_graph(conn, graph_id, stakeholder_id, role, notes)
+
+    def detach_stakeholder_from_graph(self, graph_id: str, stakeholder_id: str) -> None:
+        with self.db.connect() as conn:
+            self.stakeholders.detach_from_graph(conn, graph_id, stakeholder_id)
+
+    def list_graph_stakeholders(self, graph_id: str) -> list[dict]:
+        with self.db.connect() as conn:
+            if self.graphs.get(conn, graph_id) is None:
+                raise KeyError(f"Graph '{graph_id}' not found.")
+            return self.stakeholders.list_for_graph(conn, graph_id)
+
+    def attach_stakeholder_to_node(
+        self,
+        node_id: str,
+        stakeholder_id: str,
+        role: str,
+        scope: str = "NODE_ONLY",
+        scope_depth: int | None = None,
+        scope_link_type_id: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        valid_scopes = {"NODE_ONLY", "SUBGRAPH", "ANCESTORS"}
+        if scope not in valid_scopes:
+            raise ValueError(f"Invalid scope '{scope}'. Must be one of {valid_scopes}.")
+        with self.db.connect() as conn:
+            if self.nodes.get(conn, node_id) is None:
+                raise KeyError(f"Node '{node_id}' not found.")
+            if self.stakeholders.get(conn, stakeholder_id) is None:
+                raise KeyError(f"Stakeholder '{stakeholder_id}' not found.")
+            self.stakeholders.attach_to_node(
+                conn, node_id, stakeholder_id, role,
+                scope=scope, scope_depth=scope_depth,
+                scope_link_type_id=scope_link_type_id, notes=notes,
+            )
+
+    def detach_stakeholder_from_node(self, node_id: str, stakeholder_id: str) -> None:
+        with self.db.connect() as conn:
+            self.stakeholders.detach_from_node(conn, node_id, stakeholder_id)
+
+    def list_node_stakeholders(self, node_id: str) -> list[dict]:
+        with self.db.connect() as conn:
+            if self.nodes.get(conn, node_id) is None:
+                raise KeyError(f"Node '{node_id}' not found.")
+            return self.stakeholders.list_for_node(conn, node_id)
+
+    def resolve_stakeholders_for_node(self, node_id: str, graph_id: str) -> list[dict]:
+        """
+        Return all stakeholders with governance interest in node_id,
+        accounting for NODE_ONLY, SUBGRAPH, ANCESTORS, and GRAPH attachment scopes.
+        """
+        with self.db.connect() as conn:
+            return self.stakeholders.resolve_for_node(conn, node_id, graph_id)
 
     # ── BQL query engine ─────────────────────────────────────────────────────
 

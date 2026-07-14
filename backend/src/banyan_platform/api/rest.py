@@ -191,6 +191,38 @@ class ImportRequest(BaseModel):
     merge_into_graph_id: str | None = None
 
 
+class CloneRequest(BaseModel):
+    new_name: str
+
+
+class StakeholderCreate(BaseModel):
+    name: str
+    org: str | None = None
+    contact_ref: str | None = None
+    actor_id: str | None = None
+    notes: str | None = None
+
+class StakeholderUpdate(BaseModel):
+    name: str | None = None
+    org: str | None = None
+    contact_ref: str | None = None
+    actor_id: str | None = None
+    notes: str | None = None
+
+class GraphStakeholderAttach(BaseModel):
+    stakeholder_id: str
+    role: str        # OWNER | WATCHER | APPROVER
+    notes: str | None = None
+
+class NodeStakeholderAttach(BaseModel):
+    stakeholder_id: str
+    role: str
+    scope: str = "NODE_ONLY"    # NODE_ONLY | SUBGRAPH | ANCESTORS
+    scope_depth: int | None = None
+    scope_link_type_id: str | None = None
+    notes: str | None = None
+
+
 class DiffRequest(BaseModel):
     base: str | dict   # graph_id, "snapshot:<id>", or export doc
     compare: str | dict
@@ -620,6 +652,23 @@ def build_rest_router(service: BanyanService) -> APIRouter:
         except KeyError as exc:
             raise _not_found(exc)
 
+    @router.post("/graphs/{graph_id}/clone", response_model=GraphResponse, status_code=201)
+    def clone_graph(
+        graph_id: str,
+        body: CloneRequest,
+        actor_id: str = Depends(get_actor),
+    ):
+        try:
+            return service.clone_graph(
+                source_graph_id=graph_id,
+                new_name=body.new_name,
+                actor_id=actor_id,
+            )
+        except KeyError as exc:
+            raise _not_found(exc)
+        except ValueError as exc:
+            raise _bad_request(exc)
+
     @router.post("/graphs/import", response_model=GraphResponse, status_code=201)
     def import_graph(
         body: ImportRequest,
@@ -656,6 +705,90 @@ def build_rest_router(service: BanyanService) -> APIRouter:
             return service.execute_batch(batch_dict, actor_id=actor_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    # -- Stakeholder registry --------------------------------------------------
+
+    @router.post("/stakeholders", status_code=201)
+    def create_stakeholder(body: StakeholderCreate):
+        try:
+            return service.create_stakeholder(**body.model_dump())
+        except ValueError as exc:
+            raise _bad_request(exc)
+
+    @router.get("/stakeholders")
+    def list_stakeholders():
+        return service.list_stakeholders()
+
+    @router.get("/stakeholders/{stakeholder_id}")
+    def get_stakeholder(stakeholder_id: str):
+        try:
+            return service.get_stakeholder(stakeholder_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.patch("/stakeholders/{stakeholder_id}")
+    def update_stakeholder(stakeholder_id: str, body: StakeholderUpdate):
+        try:
+            return service.update_stakeholder(stakeholder_id, **body.model_dump(exclude_none=True))
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.delete("/stakeholders/{stakeholder_id}", status_code=204)
+    def delete_stakeholder(stakeholder_id: str):
+        try:
+            service.delete_stakeholder(stakeholder_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.post("/graphs/{graph_id}/stakeholders", status_code=204)
+    def attach_graph_stakeholder(graph_id: str, body: GraphStakeholderAttach):
+        try:
+            service.attach_stakeholder_to_graph(
+                graph_id, body.stakeholder_id, body.role, body.notes
+            )
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.delete("/graphs/{graph_id}/stakeholders/{stakeholder_id}", status_code=204)
+    def detach_graph_stakeholder(graph_id: str, stakeholder_id: str):
+        service.detach_stakeholder_from_graph(graph_id, stakeholder_id)
+
+    @router.get("/graphs/{graph_id}/stakeholders")
+    def list_graph_stakeholders(graph_id: str):
+        try:
+            return service.list_graph_stakeholders(graph_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.post("/nodes/{node_id}/stakeholders", status_code=204)
+    def attach_node_stakeholder(node_id: str, body: NodeStakeholderAttach):
+        try:
+            service.attach_stakeholder_to_node(
+                node_id, body.stakeholder_id, body.role,
+                scope=body.scope, scope_depth=body.scope_depth,
+                scope_link_type_id=body.scope_link_type_id, notes=body.notes,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @router.delete("/nodes/{node_id}/stakeholders/{stakeholder_id}", status_code=204)
+    def detach_node_stakeholder(node_id: str, stakeholder_id: str):
+        service.detach_stakeholder_from_node(node_id, stakeholder_id)
+
+    @router.get("/nodes/{node_id}/stakeholders")
+    def list_node_stakeholders(node_id: str):
+        try:
+            return service.list_node_stakeholders(node_id)
+        except KeyError as exc:
+            raise _not_found(exc)
+
+    @router.get("/nodes/{node_id}/stakeholders/resolve")
+    def resolve_node_stakeholders(node_id: str, graph_id: str):
+        """
+        Return all stakeholders with governance interest in the node,
+        respecting NODE_ONLY, SUBGRAPH, ANCESTORS, and GRAPH attachment scopes.
+        """
+        return service.resolve_stakeholders_for_node(node_id, graph_id)
 
     # -- BQL query -------------------------------------------------------------
 
