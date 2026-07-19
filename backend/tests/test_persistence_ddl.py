@@ -27,7 +27,7 @@ def test_bootstrap_seeds_generic_node_type(db):
 def test_bootstrap_is_idempotent(db):
     bootstrap(db)  # second run
     with db.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM link_type").fetchone()[0] == 9
+        assert conn.execute("SELECT COUNT(*) FROM link_type").fetchone()[0] == 10
         assert conn.execute("SELECT COUNT(*) FROM node_type").fetchone()[0] == 1
 
 

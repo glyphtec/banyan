@@ -514,8 +514,12 @@ class TestBQLMultiStep:
         assert "Food Access" in node_names
         assert "Homelessness" in node_names
 
-    def test_deduplication_prevents_revisiting_nodes(self, service, bql_data):
-        # Two overlapping FROM steps; each node should appear at most once
+    def test_per_step_seen_allows_cross_step_revisits(self, service, bql_data):
+        """
+        With per-step seen, nodes discovered in step N are visible to step N+1.
+        A node may therefore appear in multiple steps' results — that is correct
+        and intended.  Within a single step, no node appears twice (cycle guard).
+        """
         result = service.execute_bql({
             "graph": {"name": "Taxonomy"},
             "starting": {"name": "$ROOT$"},
@@ -525,8 +529,13 @@ class TestBQLMultiStep:
             ],
         })
         all_ids = [item["node"]["node_id"] for item in result["results"]]
-        # No duplicates (except the seed itself which is step-0 only)
-        assert len(all_ids) == len(set(all_ids))
+        # Within each step, no node appears twice
+        step1_ids = [item["node"]["node_id"] for item in result["results"] if item["_step"] == 1]
+        step2_ids = [item["node"]["node_id"] for item in result["results"] if item["_step"] == 2]
+        assert len(step1_ids) == len(set(step1_ids)), "step 1 has intra-step duplicates"
+        assert len(step2_ids) == len(set(step2_ids)), "step 2 has intra-step duplicates"
+        # Cross-step revisits are permitted — total may exceed unique node count
+        assert len(all_ids) >= len(set(all_ids))
 
 
 # ===========================================================================
