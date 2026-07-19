@@ -16,7 +16,11 @@ BQL is intended to replace all ad-hoc child/parent traversal endpoints and to su
 
 Advanced traversal algorithms (minimum spanning subgraph, etc.) are possible future modular inclusions but are out of scope for the initial implementation.
 
-**Loop / duplicate trimming:** Because steps may traverse FROM, TO, or WITH (bidirectional), cycles are possible. Any node or link already present in the accumulated result set is silently skipped if encountered again in a subsequent step or depth level.
+**Cycle prevention:** Within each step's depth traversal, a local `seen` set prevents revisiting nodes (halting infinite loops in cyclic graphs). This set starts **fresh for each step** — nodes visited in step N are not blocked from being discovered by step N+1. `depth` is the primary guard against runaway traversal within a step.
+
+**Cross-step revisits are allowed.** Because `seen` resets between steps, the same node may appear in results from multiple steps. This is intentional: zig-zag patterns, link discovery between already-traversed nodes, and ancestor lookups all require a step to re-enter nodes that earlier steps found. Callers that need unique-node semantics should deduplicate by `node_id` at the result layer.
+
+**LINK_NODE collection and dense clusters.** In `LINK_NODE` format, a step collects a link item even when the destination node is already in the current step's local `seen`. Only frontier expansion (adding the destination to the next hop's input) is gated on `seen`. This ensures all links touching the frontier are observable — critical for discovering links between nodes that are all members of the same frontier (e.g. finding all `TERM_EQUIVALENT` links within a graph whose nodes were all found in a prior HIERARCHICAL step).
 
 ---
 
@@ -97,7 +101,7 @@ The bare-value shorthand `{ "name": "X" }` is equivalent to `{ "name": { "eq": "
 
 An ordered list of traversal steps. Each step receives as its input **only the node set produced by the immediately preceding step** (or the seed for step 1). The full accumulated result set is separate from the traversal input — step N+1 never re-traverses from step N-1 results or the seed.
 
-Nodes found across all steps are accumulated into the response (with deduplication), subject to each step's `collect` flag.
+Nodes found across all steps are accumulated into the response, subject to each step's `collect` flag. Because `seen` is per-step, a node may appear more than once across steps — callers should deduplicate by `node_id` if unique-node results are required.
 
 **When `steps` is absent**, a single default step is implied:
 
@@ -121,7 +125,7 @@ With `starting` and no `steps`: full subtree rooted at the matched node(s).
 | `depth` | integer ≥ 1 | unlimited | Max hops for this step's traversal |
 | `node_types` | list of node type names | no filter | Restricts nodes included in this step's result |
 | `graphs` | list of graph names or ids | origin graph only | Graphs the traversal may enter. Use `["*"]` for unrestricted cross-graph |
-| `collect` | `true`, `false` | `true` | Whether this step's results are included in the response. The step always executes and its output always feeds the next step regardless of this flag. The dedup set always includes traversed nodes regardless of `collect`. |
+| `collect` | `true`, `false` | `true` | Whether this step’s results are included in the response. The step always executes and its output always feeds the next step regardless of this flag. |
 
 **`link_types` modifier:** `"HIERARCHICAL"` matches that type and all its subtypes (family traversal). `"HIERARCHICAL!"` matches only that exact type, ignoring subtypes.
 
@@ -290,11 +294,11 @@ Step 1 walks TO the immediate parent (`collect: false` — used as a waypoint on
 ```
 
 > **Zig-zag result breakdown:**
-> - `_step: 0` — Elder Abuse (seed)
+> - `_step: 0` — Elder Abuse (seed, from `include_seed: true`)
 > - `_step: 1` — parent (not collected, used only to seed step 2)
-> - `_step: 2` — all siblings of Elder Abuse (Elder Abuse itself excluded by dedup)
+> - `_step: 2` — all children of the parent, including Elder Abuse itself
 
-> **Note on `include_seed: false` + zig-zag:** If `include_seed` were `false`, the seed is not proactively added to the result set. Step 2 would then find the seed as a child of the parent and add it as a regular step-2 result — it re-appears in the siblings list. Use `include_seed: true` for correct sibling isolation.
+> **Filtering the seed from siblings:** Because `seen` is per-step, step 2 will re-discover Elder Abuse as a child of its parent. The seed appears at both `_step: 0` and `_step: 2`. To get siblings only (excluding the seed), either filter results where `_step == 2 && node_id != seed_node_id`, or set `include_seed: false` and deduplicate by `node_id` across steps.
 
 ### 2nd-degree subtree from two named nodes
 
@@ -342,6 +346,41 @@ Step 1 walks TO the immediate parent (`collect: false` — used as a waypoint on
   "result": { "format": "NODE", "include_seed": false }
 }
 ```
+
+### Symmetric link discovery within a graph
+
+Find all `TERM_EQUIVALENT_PROPOSED` links inside a graph where both endpoints are content nodes. Because both endpoints are in the frontier after the HIERARCHICAL fan-out (step 1), and `seen` resets for step 2, both endpoint nodes are discoverable via `WITH` traversal. The result contains two items per link (one per direction); group by `link.link_id` to pair them and retrieve both node objects without an extra lookup.
+
+```json
+{
+  "graph": { "name": "Open Eligibility" },
+  "steps": [
+    {
+      "direction": "FROM",
+      "link_types": ["HIERARCHICAL"],
+      "depth": 50,
+      "collect": false
+    },
+    {
+      "direction": "WITH",
+      "link_types": ["TERM_EQUIVALENT_PROPOSED!"],
+      "depth": 1,
+      "graphs": ["*"],
+      "collect": true
+    },
+    {
+      "direction": "TO",
+      "link_types": ["HIERARCHICAL"],
+      "depth": 10,
+      "graphs": ["*"],
+      "collect": true
+    }
+  ],
+  "result": { "format": "LINK_NODE", "include_seed": false }
+}
+```
+
+Step 3 collects ancestor nodes for each step-2 peer, enabling breadcrumb path construction. Group step-3 results by `link.to_node_id` to build a `child → parent` map.
 
 ---
 
