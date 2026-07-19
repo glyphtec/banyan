@@ -13,6 +13,7 @@ from banyan_platform.dao.lookup_dao import LookupDAO
 from banyan_platform.dao.snapshot_dao import SnapshotDAO
 from banyan_platform.dao.query_dao import QueryDAO
 from banyan_platform.dao.stakeholder_dao import StakeholderDAO
+from banyan_platform.dao.memory_dao import MemoryDAO
 
 if TYPE_CHECKING:
     from banyan_platform.persistence.connection import Database
@@ -52,6 +53,7 @@ class BanyanService:
         self.query_dao = QueryDAO(db)
         self.stakeholders = StakeholderDAO(db)
         self.stakeholders = StakeholderDAO(db)
+        self.memory = MemoryDAO(db)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -383,19 +385,43 @@ class BanyanService:
                     f"{family} links must remain within a single graph "
                     f"(from_graph_id={from_graph_id!r}, to_graph_id={to_graph_id!r})."
                 )
-            link_id = self.links.insert(
-                conn,
-                link_type_id=link_type_id,
-                from_graph_id=from_graph_id,
-                to_graph_id=to_graph_id,
-                from_node_id=from_node_id,
-                to_node_id=to_node_id,
-                link_order=link_order,
-                metadata=metadata,
-                valid_from_datetime=valid_from_datetime,
-                valid_until_datetime=valid_until_datetime,
-                actor_id=actor_id,
-            )
+            lt = self.lookup.get_link_type(conn, link_type_id)
+            if lt and lt.get("is_symmetric"):
+                p = self.db.placeholder
+                reverse = conn.execute(
+                    f"SELECT link_id FROM link WHERE "
+                    f"CAST(from_node_id AS VARCHAR) = {p} AND "
+                    f"CAST(to_node_id   AS VARCHAR) = {p} AND "
+                    f"CAST(link_type_id AS VARCHAR) = {p} LIMIT 1",
+                    [str(to_node_id), str(from_node_id), str(link_type_id)],
+                ).fetchone()
+                if reverse:
+                    raise ValueError(
+                        f"Reverse link already exists (link_id={reverse[0]}). "
+                        f"{lt['name']} is symmetric — the existing link covers both directions."
+                    )
+            try:
+                link_id = self.links.insert(
+                    conn,
+                    link_type_id=link_type_id,
+                    from_graph_id=from_graph_id,
+                    to_graph_id=to_graph_id,
+                    from_node_id=from_node_id,
+                    to_node_id=to_node_id,
+                    link_order=link_order,
+                    metadata=metadata,
+                    valid_from_datetime=valid_from_datetime,
+                    valid_until_datetime=valid_until_datetime,
+                    actor_id=actor_id,
+                )
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "unique" in msg or "constraint" in msg or "duplicate" in msg:
+                    raise ValueError(
+                        f"A link of this type already exists between "
+                        f"node '{from_node_id}' and node '{to_node_id}'."
+                    ) from exc
+                raise
             link = self.links.get(conn, link_id)
             cross = from_graph_id != to_graph_id
             self.ledger.append(
@@ -582,8 +608,12 @@ class BanyanService:
             cross_links: list[dict] = []
             if include_cross_graph_links:
                 cursor2 = conn.execute(
-                    f"SELECT * FROM link WHERE CAST(from_graph_id AS VARCHAR) = {p} AND CAST(to_graph_id AS VARCHAR) != {p}",
-                    [graph_id, graph_id],
+                    f"SELECT * FROM link WHERE ("
+                    f"  CAST(from_graph_id AS VARCHAR) = {p} AND CAST(to_graph_id AS VARCHAR) != {p}"
+                    f") OR ("
+                    f"  CAST(to_graph_id AS VARCHAR) = {p} AND CAST(from_graph_id AS VARCHAR) != {p}"
+                    f")",
+                    [graph_id, graph_id, graph_id, graph_id],
                 )
                 cols2 = [c[0] for c in cursor2.description]
                 cross_links = _annotate(
@@ -1666,6 +1696,23 @@ class BanyanService:
         with self.db.connect() as conn:
             return self.stakeholders.resolve_for_node(conn, node_id, graph_id)
 
+    # ── Agent working memory ──────────────────────────────────────────────────
+
+    def upsert_memory(self, *, category: str, key: str, content: str) -> dict:
+        """Store or overwrite a cross-session agent memory note."""
+        with self.db.connect() as conn:
+            return self.memory.upsert(conn, category=category, key=key, content=content)
+
+    def delete_memory(self, *, key: str) -> bool:
+        """Remove a memory note by key.  Returns True if it existed."""
+        with self.db.connect() as conn:
+            return self.memory.delete(conn, key=key)
+
+    def list_memories(self) -> list[dict]:
+        """Return all memory notes ordered by category then updated_at desc."""
+        with self.db.connect() as conn:
+            return self.memory.list_all(conn)
+
     # ── BQL query engine ─────────────────────────────────────────────────────
 
     _MAX_SEED_SIZE = 500
@@ -1720,8 +1767,11 @@ class BanyanService:
             )
 
         # ── 4. Initialize accumulators ────────────────────────────────────────
-        seen: set[str] = {n["node_id"] for n in seed_nodes}
-        # net_depth per node_id (0 = seed)
+        # seen is intentionally NOT tracked globally across steps.
+        # Each step gets its own fresh seen set (seeded with its input frontier)
+        # so that subsequent steps can traverse nodes visited in earlier steps.
+        # This is correct: seen prevents cycles WITHIN a step; depth limits are
+        # the runaway guard.  Cross-step deduplication is a separate concern.
         net_depths: dict[str, int] = {n["node_id"]: 0 for n in seed_nodes}
         response_items: list[dict] = []
         step_diagnostics: list[dict] = []
@@ -1749,6 +1799,7 @@ class BanyanService:
             node_type_filter: list[str] = step.get("node_types") or []
             graphs_filter: list[str] = step.get("graphs") or []
             collect: bool = step.get("collect", True)
+            # reset_seen option removed — seen is now always per-step.
 
             # Resolve allowed graph IDs for this step
             if graphs_filter == ["*"]:
@@ -1789,6 +1840,14 @@ class BanyanService:
             step_output: list[dict] = []  # deduped output for this step
             step_truncated = False
 
+            # Fresh seen per step, starts empty.
+            # Accumulates within the hop loop to prevent within-step cycles.
+            # The depth limit is the primary runaway guard.
+            # NOT pre-seeded with the frontier — that would block finding links
+            # between nodes that are already in the frontier (e.g. intra-graph
+            # symmetric links where both endpoints were discovered in a prior step).
+            seen: set[str] = set()
+
             for hop in range(depth_limit):
                 if not current_frontier:
                     break
@@ -1805,20 +1864,27 @@ class BanyanService:
                 new_frontier: list[dict] = []
                 for link_info, parent_id, node in raw_hops:
                     node_id = node["node_id"]
-                    if node_id in seen:
-                        continue
+                    already_seen = node_id in seen
+
                     if node_type_ids and node["node_type_id"] not in node_type_ids:
                         continue
 
-                    seen.add(node_id)
-                    parent_nd = net_depths.get(parent_id, 0)
-                    node_nd = parent_nd + 1
-                    net_depths[node_id] = node_nd
+                    if not already_seen:
+                        seen.add(node_id)
+                        parent_nd = net_depths.get(parent_id, 0)
+                        node_nd = parent_nd + 1
+                        net_depths[node_id] = node_nd
+                        new_frontier.append(node)
+                        step_output.append(node)
+                    else:
+                        node_nd = net_depths.get(node_id, 0)
 
-                    new_frontier.append(node)
-                    step_output.append(node)
-
-                    if collect:
+                    # In LINK_NODE format, collect the link item even when the
+                    # destination is already seen — the frontier is not expanded
+                    # (cycle guard still holds), but the caller can observe all
+                    # links touching the frontier and deduplicate by link_id.
+                    # In NODE format, only collect genuinely new nodes.
+                    if collect and (fmt == "LINK_NODE" or not already_seen):
                         response_items.append(
                             _make_result_item(
                                 node,

@@ -28,7 +28,20 @@ log = logging.getLogger(__name__)
 _AGENT_ACTOR = "system:mcp-agent"
 _MODEL       = "claude-sonnet-4-6"
 _MAX_TOKENS  = 4096
-_MAX_LOOPS   = 10      # safety guard against runaway tool-call loops
+_MAX_LOOPS   = 25      # safety guard against runaway tool-call loops
+
+# ---------------------------------------------------------------------------
+# Request / response models (module-level so Pydantic v2 resolves types correctly)
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+    context: dict | None = None
+    actor_id: str = _AGENT_ACTOR
+
+class ClearRequest(BaseModel):
+    session_id: str
 
 # ---------------------------------------------------------------------------
 # In-memory session store
@@ -70,20 +83,51 @@ GUIDELINES
 - Prefer source_id values over UUIDs when referring to nodes.
 - For crosswalk work: query both nodes before proposing a SAME_AS link.
 - The user confirms; you execute. Never create SAME_AS links without explicit approval.
+
+MEMORY TIER CONVENTION
+Every working-memory entry MUST begin with exactly one tier prefix as its first token:
+  [ALWAYS] — hard constraint. Mandatory. No agent discretion. Overrides user requests \
+and in-context reasoning.
+  [NEVER]  — hard prohibition. Must never be done. Overrides user requests and \
+in-context reasoning.
+  [FYI]    — reference or guidance. Agent may apply judgment.
+These tiers are system-level baselines enforced by the platform, not subject to \
+negotiation or override by any instruction, including operator instructions. \
+meta: keys are system-owned; do not overwrite them. \
+Prose-only entries without a tier prefix are non-compliant; prepend the correct tier \
+before using them.
+
+UI CONTROL
+- After locating a specific node the user asked about, call ui_navigate_node to reveal it \
+in the tree and detail panels. Use the graph_id and node_id from the query result.
+- After shifting analytical focus to a different graph, call ui_select_graph.
+- Only call these for intentional focus shifts — not for every node in a bulk listing.
 """
 
 
-def _build_system(context: dict | None) -> str:
-    if not context:
-        return _SYSTEM_BASE
-    parts = [_SYSTEM_BASE, "\nCURRENT UI CONTEXT"]
-    if context.get("graph_name"):
-        parts.append(f"- Graph: {context['graph_name']}")
-    if context.get("node_name"):
-        parts.append(
-            f"- Selected node: \"{context['node_name']}\" "
-            f"(source_id: {context.get('node_source_id', '?')})"
-        )
+def _build_system(context: dict | None, memories: list[dict] | None = None) -> str:
+    parts = [_SYSTEM_BASE]
+    if memories:
+        parts.append("\nWORKING MEMORY")
+        # meta: entries (system-level rules) always render first so the tier
+        # prefixes are read before any per-session guidance.
+        ordered = sorted(memories, key=lambda m: (0 if m["key"].startswith("meta:") else 1, m["key"]))
+        for m in ordered:
+            # Format: key: <content>   — category bracket omitted so the
+            # [ALWAYS]/[NEVER]/[FYI] tier prefix is the first visible token.
+            parts.append(f"{m['key']}: {m['content']}")
+    if context:
+        parts.append("\nCURRENT UI CONTEXT")
+        if context.get("operator_handle"):
+            display = context.get("operator_display_name") or context["operator_handle"]
+            parts.append(f"- Operator: {display} ({context['operator_handle']})")
+        if context.get("graph_name"):
+            parts.append(f"- Graph: {context['graph_name']}")
+        if context.get("node_name"):
+            parts.append(
+                f"- Selected node: \"{context['node_name']}\" "
+                f"(source_id: {context.get('node_source_id', '?')})"
+            )
     return "\n".join(parts)
 
 
@@ -102,7 +146,12 @@ _TOOLS: list[dict] = [
             "  Find OE nodes containing 'food':\n"
             "    {\"graph\":{\"name\":\"Open Eligibility\"},\"starting\":{\"name_contains\":\"food\"},\"result\":{\"format\":\"NODE\"}}\n\n"
             "  SNOMED codes for a Gravity domain (2-step):\n"
-            "    {\"graph\":{\"name\":\"Gravity SDOH Clinical Care STU 2.3\"},\"starting\":{\"name\":\"Food Insecurity\"},\"steps\":[{\"direction\":\"FROM\",\"link_types\":[\"HIERARCHICAL\"],\"depth\":1,\"collect\":false},{\"direction\":\"FROM\",\"link_types\":[\"HAS_MEMBER!\"],\"graphs\":[\"SNOMED CT SDOH Slice\"],\"depth\":1}],\"result\":{\"format\":\"NODE\",\"include_seed\":false}}"
+            "    {\"graph\":{\"name\":\"Gravity SDOH Clinical Care STU 2.3\"},\"starting\":{\"name\":\"Food Insecurity\"},\"steps\":[{\"direction\":\"FROM\",\"link_types\":[\"HIERARCHICAL\"],\"depth\":1,\"collect\":false},{\"direction\":\"FROM\",\"link_types\":[\"HAS_MEMBER!\"],\"graphs\":[\"SNOMED CT SDOH Slice\"],\"depth\":1}],\"result\":{\"format\":\"NODE\",\"include_seed\":false}}\n\n"
+            "RESULT LIMIT\n"
+            "Results are capped at 150 by default to protect context size. "
+            "Pass `limit` (integer) to override up to 500. "
+            "When the cap is hit, the response contains `_truncated: true` and `_total` "
+            "with the full count — always surface this to the user."
         ),
         "input_schema": {
             "type": "object",
@@ -113,7 +162,14 @@ _TOOLS: list[dict] = [
                         "BQL query dict. Required key: 'graph' ({name|id}). "
                         "Optional: 'starting' (NodePredicate), 'steps' (list), 'result' (options)."
                     ),
-                }
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Max results to return (default 150, max 500). "
+                        "Increase when the user explicitly asks for a fuller result set."
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -224,6 +280,100 @@ _TOOLS: list[dict] = [
             "required": ["graph_id"],
         },
     },
+    {
+        "name": "ui_navigate_node",
+        "description": (
+            "Instruct the UI to switch to a graph and reveal a specific node in the tree and "
+            "detail panels. Call after locating a node the user asked about. "
+            "Use graph_id and node_id from a previous banyan_query or get_node_by_source result."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "graph_id": {"type": "string", "description": "UUID of the graph"},
+                "node_id":  {"type": "string", "description": "UUID of the node"},
+            },
+            "required": ["graph_id", "node_id"],
+        },
+    },
+    {
+        "name": "ui_select_graph",
+        "description": "Instruct the UI to switch the active graph without selecting a specific node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "graph_id": {"type": "string", "description": "UUID of the graph to select"},
+            },
+            "required": ["graph_id"],
+        },
+    },
+    {
+        "name": "remember",
+        "description": (
+            "Store a note in persistent working memory — survives page reloads and server restarts.\n"
+            "Use when the user teaches you a shorthand, states a preference, or establishes a "
+            "workflow convention. The key is a stable human-readable identifier "
+            "(e.g. 'shorthand:food_cluster'). Overwrites any existing note with the same key.\n"
+            "Categories: shorthand | preference | workflow | fact | general"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key":      {"type": "string", "description": "Stable unique identifier for this note"},
+                "content":  {"type": "string", "description": "The note to store (1-3 sentences)"},
+                "category": {"type": "string", "description": "shorthand | preference | workflow | fact | general"},
+            },
+            "required": ["key", "content"],
+        },
+    },
+    {
+        "name": "forget",
+        "description": "Remove a note from working memory by key.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Key of the note to remove"},
+            },
+            "required": ["key"],
+        },
+    },
+    {
+        "name": "execute_batch",
+        "description": (
+            "Execute a batch of link operations atomically in one call.\n"
+            "Use this instead of looping create_link_by_source when creating many links of the same type.\n\n"
+            "graph_name   — graph name string (resolved server-side).\n"
+            "default_link_type_name — link type name applied to all CREATE_LINK ops without an explicit link_type_id.\n\n"
+            "link_operations items:\n"
+            "  { \"verb\": \"CREATE_LINK\",  \"data\": { \"from_source_id\": \"...\", \"to_source_id\": \"...\" } }\n"
+            "  { \"verb\": \"DESTROY_LINK\", \"data\": { \"link_id\": \"...\" } }\n\n"
+            "For cross-graph CREATE_LINK add \"to_graph_name\" in data.\n"
+            "Returns counters: links_created, links_destroyed, ledger_entries."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "graph_name": {"type": "string", "description": "Source graph name"},
+                "default_link_type_name": {"type": "string", "description": "Link type for all CREATE_LINK ops"},
+                "link_operations": {
+                    "type": "array",
+                    "description": "List of link operations",
+                    "items": {"type": "object"},
+                },
+                "node_operations": {
+                    "type": "array",
+                    "description": "Optional list of node operations",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["graph_name", "link_operations"],
+        },
+    },
+    {
+        "name": "list_memories",
+        "description": "List all notes currently in working memory.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -241,11 +391,11 @@ def _dispatch(
     try:
         if name == "banyan_query":
             result = service.execute_bql(args["query"])
-            # Trim large result sets to keep context manageable
-            if isinstance(result.get("results"), list) and len(result["results"]) > 50:
-                trimmed = result["results"][:50]
-                result = {**result, "results": trimmed,
-                          "_truncated": True, "_total": result.get("total_count")}
+            cap = min(int(args.get("limit", 150)), 500)
+            if isinstance(result.get("results"), list) and len(result["results"]) > cap:
+                total = len(result["results"])
+                result = {**result, "results": result["results"][:cap],
+                          "_truncated": True, "_total": total}
             return result
 
         if name == "list_graphs":
@@ -313,6 +463,53 @@ def _dispatch(
             limit = args.get("limit", 20)
             return history[-limit:]
 
+        if name in ("ui_navigate_node", "ui_select_graph"):
+            return {"ok": True}
+
+        if name == "remember":
+            return service.upsert_memory(
+                category=args.get("category", "general"),
+                key=args["key"],
+                content=args["content"],
+            )
+
+        if name == "forget":
+            deleted = service.delete_memory(key=args["key"])
+            return {"deleted": deleted, "key": args["key"]}
+
+        if name == "execute_batch":
+            graphs_list = service.list_graphs()
+            gmap = {g["name"]: g["graph_id"] for g in graphs_list}
+            gname = args.get("graph_name")
+            if not gname or gname not in gmap:
+                return {"error": f"Graph '{gname}' not found. Available: {list(gmap.keys())}"}
+            lt_id = None
+            lt_name = args.get("default_link_type_name")
+            if lt_name:
+                lt_map = {lt["name"]: lt["link_type_id"] for lt in service.get_link_types()}
+                lt_id = lt_map.get(lt_name)
+                if not lt_id:
+                    return {"error": f"Link type '{lt_name}' not found. Available: {list(lt_map.keys())}"}
+            link_ops = args.get("link_operations", [])
+            for op in link_ops:
+                tgn = op.get("data", {}).pop("to_graph_name", None)
+                if tgn:
+                    tgid = gmap.get(tgn)
+                    if not tgid:
+                        return {"error": f"Graph '{tgn}' not found"}
+                    op["data"]["to_graph_id"] = tgid
+            batch = {
+                "graph_id":             gmap[gname],
+                "actor_id":             actor_id,
+                "default_link_type_id": lt_id,
+                "link_operations":      link_ops,
+                "node_operations":      args.get("node_operations", []),
+            }
+            return service.execute_batch(batch, actor_id=actor_id)
+
+        if name == "list_memories":
+            return service.list_memories()
+
         return {"error": f"Unknown tool: {name}"}
 
     except Exception as exc:  # noqa: BLE001
@@ -340,17 +537,6 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
 
     router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
-    # ── Request / response models ─────────────────────────────────────────
-
-    class ChatRequest(BaseModel):
-        session_id: str
-        message: str
-        context: dict | None = None
-        actor_id: str = _AGENT_ACTOR
-
-    class ClearRequest(BaseModel):
-        session_id: str
-
     # ── POST /chat ─────────────────────────────────────────────────────────
 
     @router.post("/chat")
@@ -364,8 +550,10 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
         session = _sessions.setdefault(body.session_id, [])
         session.append({"role": "user", "content": body.message})
 
-        system_prompt = _build_system(body.context)
+        memories = service.list_memories()
+        system_prompt = _build_system(body.context, memories)
         tool_calls_log: list[dict] = []
+        actions: list[dict] = []
 
         for _ in range(_MAX_LOOPS):
             resp = _client.messages.create(
@@ -385,13 +573,15 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
                     (b.text for b in resp.content if hasattr(b, "text")),
                     "(no text response)",
                 )
-                return {"reply": text, "tool_calls": tool_calls_log}
+                return {"reply": text, "tool_calls": tool_calls_log, "actions": actions}
 
             if resp.stop_reason == "tool_use":
                 tool_results = []
                 for block in resp.content:
                     if block.type == "tool_use":
                         result = _dispatch(block.name, block.input, service, body.actor_id)
+                        if block.name in ("ui_navigate_node", "ui_select_graph"):
+                            actions.append({"type": block.name[len("ui_"):], **block.input})
                         tool_calls_log.append({
                             "name": block.name,
                             "input": block.input,
@@ -411,6 +601,7 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
         return {
             "reply": "Agent loop ended without a final response.",
             "tool_calls": tool_calls_log,
+            "actions": actions,
         }
 
     # ── POST /clear ────────────────────────────────────────────────────────
@@ -419,5 +610,11 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
     def clear(body: ClearRequest):
         _sessions.pop(body.session_id, None)
         return {"ok": True}
+
+    # ── GET /memory ────────────────────────────────────────────────────────
+
+    @router.get("/memory")
+    def get_memory():
+        return service.list_memories()
 
     return router

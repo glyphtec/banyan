@@ -32,25 +32,40 @@ function MetadataSection({ metadata }) {
   )
 }
 
-function LinksSection({ title, links, nodeMap, crossGraphNodeMap, currentNodeId, graphMap, onSelect }) {
+function LinksSection({ title, links, nodeMap, crossGraphNodeMap, crossGraphParentMap, currentNodeId, graphMap, onSelect, showDirection, symmetricIds }) {
   if (!links || links.length === 0) return null
   return (
     <div className="detail-section">
       <h3>{title} <span style={{ fontWeight: 400, textTransform: 'none' }}>({links.length})</span></h3>
       <ul className="link-list">
         {links.map(l => {
-          const peerId = l.from_node_id === currentNodeId ? l.to_node_id : l.from_node_id
-          const peerGraphId = l.from_node_id === currentNodeId ? l.to_graph_id : l.from_graph_id
+          const isOutbound = l.from_node_id === currentNodeId
+          const peerId = isOutbound ? l.to_node_id : l.from_node_id
+          const peerGraphId = isOutbound ? l.to_graph_id : l.from_graph_id
           const peer = nodeMap[peerId]
           const crossPeer = !peer ? crossGraphNodeMap?.[peerId] : null
           return (
             <li key={l.link_id}>
               <span className="link-badge">{l.link_type_name}</span>
+              {showDirection && (
+                <span style={{ color: 'var(--text-dim)', fontSize: '11px', marginRight: 4 }}>
+                  {symmetricIds?.has(l.link_type_id) ? '<->' : isOutbound ? '→' : '←'}
+                </span>
+              )}
               {peer
-                ? <span className="link-name" onClick={() => onSelect(peer)}>{peer.name}</span>
+                ? <span
+                    className="link-name"
+                    onClick={() => onSelect(peer)}
+                    title={crossGraphParentMap?.[peerId] ? `${crossGraphParentMap[peerId]} \u203a ${peer.name}` : undefined}
+                  >{peer.name}</span>
                 : crossPeer
                   ? (
-                    <span className="link-name" style={{ fontStyle: 'italic' }} onClick={() => onSelect(crossPeer)}>
+                    <span
+                      className="link-name"
+                      style={{ fontStyle: 'italic' }}
+                      onClick={() => onSelect(crossPeer)}
+                      title={crossGraphParentMap?.[peerId] ? `${crossGraphParentMap[peerId]} › ${crossPeer.name}` : undefined}
+                    >
                       {crossPeer.name}
                       {graphMap?.[peerGraphId] && (
                         <span style={{ color: 'var(--text-dim)', fontSize: '11px', marginLeft: 4 }}>
@@ -69,7 +84,7 @@ function LinksSection({ title, links, nodeMap, crossGraphNodeMap, currentNodeId,
   )
 }
 
-export function NodeDetail({ node, links, nodeMap, crossGraphNodeMap, graphMap, nodeTypeMap, hierarchicalIds, relatedIds, onSelect }) {
+export function NodeDetail({ node, links, nodeMap, crossGraphNodeMap, crossGraphParentMap, graphMap, nodeTypeMap, hierarchicalIds, relatedIds, symmetricIds, onSelect }) {
   if (!node) {
     return (
       <div className="detail-panel">
@@ -133,11 +148,11 @@ export function NodeDetail({ node, links, nodeMap, crossGraphNodeMap, graphMap, 
         </table>
       </div>
 
-      <LinksSection title="Parents"  links={parentLinks}  nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
-      <LinksSection title="Children" links={childLinks}   nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
-      <LinksSection title="Related"  links={relatedLinks} nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
+      <LinksSection title="Parents"  links={parentLinks}  nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} crossGraphParentMap={crossGraphParentMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
+      <LinksSection title="Children" links={childLinks}   nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} crossGraphParentMap={crossGraphParentMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
+      <LinksSection title="Related"  links={relatedLinks} nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} crossGraphParentMap={crossGraphParentMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} showDirection symmetricIds={symmetricIds} />
       {otherLinks.length > 0 && (
-        <LinksSection title="Other" links={otherLinks} nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} />
+        <LinksSection title="Other" links={otherLinks} nodeMap={nodeMap} crossGraphNodeMap={crossGraphNodeMap} crossGraphParentMap={crossGraphParentMap} graphMap={graphMap} currentNodeId={node.node_id} onSelect={onSelect} showDirection symmetricIds={symmetricIds} />
       )}
     </div>
   )

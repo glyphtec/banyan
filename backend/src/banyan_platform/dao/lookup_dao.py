@@ -35,7 +35,7 @@ class LookupDAO:
 
     def get_link_types(self, conn) -> list[dict]:
         return _all_rows(conn.execute(
-            "SELECT link_type_id, parent_link_type_id, name, notes "
+            "SELECT link_type_id, parent_link_type_id, name, notes, is_symmetric "
             "FROM link_type ORDER BY name"
         ))
 
@@ -47,17 +47,17 @@ class LookupDAO:
         p = self.db.placeholder
         sql = f"""
             WITH RECURSIVE family AS (
-                SELECT link_type_id, parent_link_type_id, name, notes
+                SELECT link_type_id, parent_link_type_id, name, notes, is_symmetric
                 FROM link_type
                 WHERE name = {p}
 
                 UNION ALL
 
-                SELECT lt.link_type_id, lt.parent_link_type_id, lt.name, lt.notes
+                SELECT lt.link_type_id, lt.parent_link_type_id, lt.name, lt.notes, lt.is_symmetric
                 FROM link_type lt
                 JOIN family f ON lt.parent_link_type_id = f.link_type_id
             )
-            SELECT link_type_id, parent_link_type_id, name, notes
+            SELECT link_type_id, parent_link_type_id, name, notes, is_symmetric
             FROM family
             ORDER BY name
         """

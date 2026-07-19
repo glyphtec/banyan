@@ -51,7 +51,7 @@ function Message({ msg }) {
   )
 }
 
-export function ChatPanel({ context, sessionId, style }) {
+export function ChatPanel({ context, sessionId, onAction, style }) {
   const [messages, setMessages] = useState([WELCOME])
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
@@ -75,14 +75,20 @@ export function ChatPanel({ context, sessionId, style }) {
         body: JSON.stringify({ session_id: sessionId, message: text, context }),
       })
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: resp.statusText }))
-        throw new Error(err.detail || resp.statusText)
+        const err = await resp.json().catch(() => ({}))
+        const detail = typeof err.detail === 'string'
+          ? err.detail
+          : JSON.stringify(err.detail ?? err) || resp.statusText
+        throw new Error(`${resp.status}: ${detail}`)
       }
       const data = await resp.json()
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: data.reply, tool_calls: data.tool_calls ?? [] },
       ])
+      if (onAction && data.actions?.length) {
+        data.actions.forEach(a => onAction(a))
+      }
     } catch (e) {
       setMessages(prev => [
         ...prev,

@@ -154,6 +154,7 @@ class LinkTypeResponse(BaseModel):
     parent_link_type_id: str | None = None
     name: str
     notes: str | None = None
+    is_symmetric: bool = False
 
 
 class NodeTypeCreate(BaseModel):
@@ -238,11 +239,18 @@ class BatchLinkOperation(BaseModel):
     data: dict
 
 class BatchRequest(BaseModel):
-    graph_id: str
+    # Accept graph by UUID or by name (from_graph_name mirrors the named-batch
+    # file convention; graph_name is the canonical API field).
+    graph_id: str | None = None
+    graph_name: str | None = None
+    from_graph_name: str | None = None   # named-batch alias for graph_name
     actor_id: str | None = None
     default_link_type_id: str | None = None
+    default_link_type_name: str | None = None
     node_operations: list[BatchNodeOperation] = []
     link_operations: list[BatchLinkOperation] = []
+
+    model_config = {"extra": "allow"}
 
 
 # ---------------------------------------------------------------------------
@@ -700,7 +708,49 @@ def build_rest_router(service: BanyanService) -> APIRouter:
         body: BatchRequest,
         actor_id: str = Depends(get_actor),
     ):
-        batch_dict = body.model_dump()
+        batch_dict = body.model_dump(exclude_none=True)
+
+        # ── Resolve graph name → graph_id ─────────────────────────────────
+        if not batch_dict.get("graph_id"):
+            gname = batch_dict.pop("graph_name", None) or batch_dict.pop("from_graph_name", None)
+            if not gname:
+                raise HTTPException(400, "batch requires graph_id or graph_name")
+            gmap = {g["name"]: g["graph_id"] for g in service.list_graphs()}
+            gid = gmap.get(gname)
+            if not gid:
+                raise HTTPException(400, f"Graph '{gname}' not found")
+            batch_dict["graph_id"] = gid
+        else:
+            batch_dict.pop("graph_name", None)
+            batch_dict.pop("from_graph_name", None)
+
+        # ── Resolve default link type name → link_type_id ─────────────────
+        if not batch_dict.get("default_link_type_id") and batch_dict.get("default_link_type_name"):
+            lt_name = batch_dict.pop("default_link_type_name")
+            ltmap = {lt["name"]: lt["link_type_id"] for lt in service.get_link_types()}
+            ltid = ltmap.get(lt_name)
+            if not ltid:
+                raise HTTPException(400, f"Link type '{lt_name}' not found")
+            batch_dict["default_link_type_id"] = ltid
+        else:
+            batch_dict.pop("default_link_type_name", None)
+
+        # ── Resolve to_graph_name in link operation data ───────────────────
+        graph_names_needed = {
+            op["data"]["to_graph_name"]
+            for op in batch_dict.get("link_operations", [])
+            if "to_graph_name" in op.get("data", {})
+        }
+        if graph_names_needed:
+            gmap2 = {g["name"]: g["graph_id"] for g in service.list_graphs()}
+            missing = graph_names_needed - set(gmap2)
+            if missing:
+                raise HTTPException(400, f"Graphs not found: {sorted(missing)}")
+            for op in batch_dict.get("link_operations", []):
+                tgn = op.get("data", {}).pop("to_graph_name", None)
+                if tgn:
+                    op["data"]["to_graph_id"] = gmap2[tgn]
+
         try:
             return service.execute_batch(batch_dict, actor_id=actor_id)
         except (KeyError, ValueError) as exc:
