@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -40,6 +41,21 @@ class DuckDBDatabase(Database):
         self._path = config.duckdb_path
         self._conn = None
         self._lock = threading.Lock()
+        # Ensure the connection is closed cleanly on process exit (including
+        # Ctrl+C / KeyboardInterrupt).  Without this, DuckDB leaves the WAL
+        # file uncheckpointed, causing "Failure while replaying WAL file" on
+        # the next startup.
+        atexit.register(self._close)
+
+    def _close(self) -> None:
+        """Close the DuckDB connection and checkpoint the WAL."""
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
 
     def _get_conn(self):
         if self._conn is None:
