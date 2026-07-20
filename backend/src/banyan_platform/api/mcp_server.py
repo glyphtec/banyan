@@ -745,37 +745,45 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         link_type_name: str,
         rationale: str,
         actor_id: str = _MCP_DEFAULT_ACTOR,
-        notes: str | None = None,
+        confidence_level: str | None = None,
+        confidence_basis: list[str] | None = None,
+        caveats: str | None = None,
     ) -> dict:
         """
         Create a typed crosswalk link between two nodes, with structured metadata.
 
         link_type_name must be one of:
-          SAME_AS          — editorially confirmed equivalence between concepts
-                             in different graphs (link_provenance='asserted')
-          TERM_SIMILAR     — overlapping but not identical scope; use when SAME_AS
-                             overstates certainty (link_provenance='asserted')
-          SAME_AS_PROPOSED — agent-proposed candidate awaiting expert review
-                             (link_provenance='proposed')
+          SAME_AS               — editorially confirmed equivalence (link_provenance='asserted')
+          TERM_SIMILAR          — overlapping but not identical scope; preferred for
+                                  Gravity L1 domain → OE L1 service category mappings
+                                  (link_provenance='asserted')
+          SAME_AS_PROPOSED      — agent-proposed SAME_AS awaiting review
+          TERM_SIMILAR_PROPOSED — agent-proposed TERM_SIMILAR awaiting review;
+                                  use for L1 domain-level mappings where full
+                                  equivalence is unlikely
 
-        rationale is required. Store the key evidence for and against the match
-        so the audit ledger captures the reasoning, not just the decision.
-        notes is optional free-text for scope caveats or reviewer annotations.
+        rationale is required. Store the key evidence for and against the match.
 
-        Graph IDs are resolved automatically from the node records — pass only
-        the node UUIDs from banyan_get_crosswalk_candidates output.
+        confidence_level: HIGH | MEDIUM | LOW | UNCERTAIN
+          Categorical confidence rating - not a probability.
+          Use HIGH only when evidence is strong and unambiguous.
+          UNCERTAIN = plausible but no strong signal.
 
-        To promote a SAME_AS_PROPOSED to SAME_AS:
-          1. destroy_link(proposed_link_id)
-          2. banyan_create_crosswalk_link(..., link_type_name="SAME_AS")
-        Both steps share a transaction visible in the ledger.
+        confidence_basis: list of signals from:
+          name_similarity | code_overlap | domain_alignment |
+          population_overlap | service_alignment | no_clear_signal
+
+        caveats: scope limitations or reasons the match may not hold.
+
+        Graph IDs are resolved automatically from the node records.
 
         Returns the created link dict.
         """
         _KNOWN: dict[str, tuple[str, str]] = {
-            "SAME_AS":          ("ba0ba000-0000-0000-0000-000000000011", "asserted"),
-            "TERM_SIMILAR":     ("ba0ba000-0000-0000-0000-000000000013", "asserted"),
-            "SAME_AS_PROPOSED": ("ba0ba000-0000-0000-0000-000000000016", "proposed"),
+            "SAME_AS":               ("ba0ba000-0000-0000-0000-000000000011", "asserted"),
+            "TERM_SIMILAR":          ("ba0ba000-0000-0000-0000-000000000013", "asserted"),
+            "SAME_AS_PROPOSED":      ("ba0ba000-0000-0000-0000-000000000016", "proposed"),
+            "TERM_SIMILAR_PROPOSED": ("ba0ba000-0000-0000-0000-000000000018", "proposed"),
         }
         if link_type_name not in _KNOWN:
             raise ValueError(
@@ -788,8 +796,16 @@ def build_mcp_server(service: BanyanService) -> FastMCP:
         to_node = service.get_node(to_node_id)
 
         metadata: dict = {"link_provenance": provenance, "agent_rationale": rationale}
-        if notes:
-            metadata["notes"] = notes
+        if confidence_level:
+            if confidence_level not in ("HIGH", "MEDIUM", "LOW", "UNCERTAIN"):
+                raise ValueError(
+                    f"confidence_level must be HIGH | MEDIUM | LOW | UNCERTAIN; got {confidence_level!r}"
+                )
+            metadata["confidence_level"] = confidence_level
+        if confidence_basis:
+            metadata["confidence_basis"] = confidence_basis
+        if caveats:
+            metadata["caveats"] = caveats
 
         return service.create_link(
             link_type_id=link_type_id,

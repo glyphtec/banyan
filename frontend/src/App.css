@@ -533,6 +533,67 @@ body {
   text-decoration: underline;
 }
 
+/* Link row layout — main line + optional metadata panel */
+.link-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.link-meta-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.link-meta-toggle:hover { color: var(--accent); }
+.link-meta-panel {
+  margin-top: 5px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.link-meta-conf-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 3px;
+  align-self: flex-start;
+}
+.link-meta-basis-tag {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-right: 4px;
+}
+.link-meta-rationale {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+  line-height: 1.4;
+  margin: 0;
+}
+.link-meta-caveats {
+  font-size: 11px;
+  color: #c07030;
+  line-height: 1.4;
+  margin: 0;
+}
+
 /* ── Spinner / loading ── */
 .loading {
   display: flex;
@@ -957,3 +1018,31 @@ body {
   outline: none;
 }
 .review-pass-form input:focus { border-color: var(--accent); }
+
+/* Confidence badge in review rows */
+.review-confidence-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.review-confidence-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.review-conf-high     { background: #3a9e5f; }
+.review-conf-medium   { background: #b07d20; }
+.review-conf-low      { background: #b05030; }
+.review-conf-uncertain { background: var(--text-dim); }
+.review-basis-tag {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}

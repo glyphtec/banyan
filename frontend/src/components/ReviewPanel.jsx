@@ -158,9 +158,10 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
           metadata: {
             link_provenance: 'asserted',
             approved_by:     actorHandle,
-            ...(link.metadata?.agent_rationale
-              ? { agent_rationale: link.metadata.agent_rationale }
-              : {}),
+            ...(link.metadata?.agent_rationale    ? { agent_rationale:    link.metadata.agent_rationale }    : {}),
+            ...(link.metadata?.confidence_level   ? { confidence_level:   link.metadata.confidence_level }   : {}),
+            ...(link.metadata?.confidence_basis   ? { confidence_basis:   link.metadata.confidence_basis }   : {}),
+            ...(link.metadata?.caveats            ? { caveats:            link.metadata.caveats }            : {}),
           },
         },
       })
@@ -300,6 +301,18 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
               {/* Breadcrumb path (only if it adds context beyond the node name) */}
               {toPath !== toNode.name && (
                 <div className="review-breadcrumb">{toPath}</div>
+              )}
+
+              {/* Confidence badge + basis tags */}
+              {link.metadata?.confidence_level && (
+                <div className="review-confidence-row">
+                  <span className={`review-confidence-badge review-conf-${link.metadata.confidence_level.toLowerCase()}`}>
+                    {link.metadata.confidence_level}
+                  </span>
+                  {(link.metadata.confidence_basis ?? []).map(b => (
+                    <span key={b} className="review-basis-tag">{b.replace(/_/g, ' ')}</span>
+                  ))}
+                </div>
               )}
 
               {/* Agent rationale */}
