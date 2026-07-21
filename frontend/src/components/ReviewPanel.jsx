@@ -173,6 +173,9 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
             ...(link.metadata?.confidence_basis   ? { confidence_basis:   link.metadata.confidence_basis }   : {}),
             ...(link.metadata?.caveats            ? { caveats:            link.metadata.caveats }            : {}),
           },
+          // from_graph_id may differ from reviewGraphId for cross-graph links
+          // (e.g. reviewing OE but the from-node lives in SNOMED SR).
+          from_graph_id: fromNode.graph_id,
         },
       })
       await executeBatch(

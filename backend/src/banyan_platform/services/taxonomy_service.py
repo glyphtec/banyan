@@ -1068,7 +1068,11 @@ class BanyanService:
                             "CREATE_LINK requires link_type_id in data or "
                             "default_link_type_id in batch header."
                         )
-                    to_graph_id = data.get("to_graph_id", graph_id)
+                    # from_graph_id may be overridden in data (e.g. cross-graph
+                    # links approved via the review panel where the review graph
+                    # differs from the from-node's graph).
+                    from_graph_id = data.get("from_graph_id", graph_id)
+                    to_graph_id   = data.get("to_graph_id", graph_id)
 
                     # Resolve from_node_id — accept UUID directly or look up by
                     # source_id.  Resolution happens inside the open transaction, so
@@ -1108,7 +1112,7 @@ class BanyanService:
                     link_id = self.links.insert(
                         conn,
                         link_type_id=lt_id,
-                        from_graph_id=graph_id,
+                        from_graph_id=from_graph_id,
                         to_graph_id=to_graph_id,
                         from_node_id=from_node_id,
                         to_node_id=to_node_id,
@@ -1116,12 +1120,13 @@ class BanyanService:
                         metadata=data.get("metadata"),
                     )
                     link_data = self.links.get(conn, link_id)
+                    cross = from_graph_id != to_graph_id
                     self.ledger.append(
                         conn, transaction_id=txn_id, actor_id=effective_actor,
-                        primitive_verb="CREATE_LINK", source_graph_id=graph_id,
+                        primitive_verb="CREATE_LINK", source_graph_id=from_graph_id,
                         entity_id=link_id, payload=link_data,
                         reversal_payload={"link_id": link_id},
-                        target_graph_id=to_graph_id if to_graph_id != graph_id else None,
+                        target_graph_id=to_graph_id if cross else None,
                     )
                     counters["links_created"] += 1
                     counters["ledger_entries"] += 1
