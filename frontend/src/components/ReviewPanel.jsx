@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { bqlQuery, executeBatch, updateLink } from '../api'
+import { bqlQuery, exportGraph, executeBatch, updateLink } from '../api'
 
 // Strip _PROPOSED suffix to get the convention-derived confirmed type name.
 function deriveConfirmedName(proposedName) {
@@ -66,59 +66,69 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
     setLoading(true)
     setFetchError(null)
     try {
-      const data = await bqlQuery({
-        graph: { id: reviewGraphId },
-        steps: [
-          // Step 1: fan out to all nodes in the review graph (no collect).
-          { direction: 'FROM', link_types: ['HIERARCHICAL'], depth: 50, collect: false },
-          // Step 2: WITH so both directions of each symmetric link are collected,
-          // giving us both endpoint node objects without a separate lookup.
-          { direction: 'WITH', link_types: [ft.name + '!'], depth: 1, graphs: ['*'], collect: true },
-          // Step 3: ancestors of step-2 peer nodes for breadcrumb context.
-          { direction: 'TO', link_types: ['HIERARCHICAL'], depth: 10, graphs: ['*'], collect: true },
-        ],
-        result: { format: 'LINK_NODE', include_seed: false },
-      })
+      // Use exportGraph instead of BQL — works for flat AND hierarchical graphs.
+      // exportGraph returns cross_graph_links (bidirectional) regardless of structure.
+      const exp = await exportGraph(reviewGraphId)
+      const allLinks = [...(exp.links ?? []), ...(exp.cross_graph_links ?? [])]
+      const proposed = allLinks.filter(l => l.link_type_name === ft.name)
 
-      // Step 1 has collect:false — builds frontier only, no results.
-      // Step 2 WITH traversal: with per-step seen, both endpoint nodes of each
-      //   symmetric link are collected (one item per direction per link).
-      //   Group by link_id so we have both nodes for free — no extra lookup.
-      // Step 3 TO HIERARCHICAL: ancestors of step-2 peers for breadcrumbs.
+      if (proposed.length === 0) { setQueueItems([]); return }
 
-      const byLinkId  = {}   // link_id → { fromItem, toItem }
+      // from-node map: all nodes in the review graph
+      const fromNodeMap = Object.fromEntries(exp.nodes.map(n => [n.node_id, n]))
+
+      // Collect peer node IDs grouped by their graph, for BQL ancestor lookup
+      const peersByGraph = {}   // graph_id → Set<node_id>
+      for (const l of proposed) {
+        const peerGraphId = l.from_graph_id === reviewGraphId ? l.to_graph_id : l.from_graph_id
+        const peerNodeId  = l.from_graph_id === reviewGraphId ? l.to_node_id  : l.from_node_id
+        if (!peersByGraph[peerGraphId]) peersByGraph[peerGraphId] = new Set()
+        peersByGraph[peerGraphId].add(peerNodeId)
+      }
+
       const childToParent = {}
       const ancestorNames = {}
+      const peerNodeMap   = {}
 
-      for (const item of data.results) {
-        if (item._step === 2 && item.link && item.node) {
-          const lid = item.link.link_id
-          if (!byLinkId[lid]) byLinkId[lid] = {}
-          // FROM direction: we arrived at the to_node
-          // TO direction:   we arrived at the from_node
-          if (item._direction === 'FROM') byLinkId[lid].toItem  = item
-          else                            byLinkId[lid].fromItem = item
-        } else if (item._step === 3 && item.link && item.node) {
-          const childId = item.link.to_node_id
-          if (!childToParent[childId]) childToParent[childId] = item.node.node_id
-          ancestorNames[item.node.node_id] = item.node.name
+      // One BQL query per peer graph: fetch seed nodes + their ancestors
+      for (const [peerGraphId, nodeIdSet] of Object.entries(peersByGraph)) {
+        const nodeIds = [...nodeIdSet]
+        const startingPred = nodeIds.length === 1
+          ? { node_id: nodeIds[0] }
+          : { or: nodeIds.map(id => ({ node_id: id })) }
+        const result = await bqlQuery({
+          graph:    { id: peerGraphId },
+          starting: startingPred,
+          steps: [{ direction: 'TO', link_types: ['HIERARCHICAL'], depth: 10, collect: true }],
+          result:   { format: 'LINK_NODE', include_seed: true },
+        })
+        for (const item of result.results) {
+          if (item._step === 0 && item.node)
+            peerNodeMap[item.node.node_id] = item.node
+          else if (item._step === 1 && item.link && item.node) {
+            const childId = item.link.to_node_id
+            if (!childToParent[childId]) childToParent[childId] = item.node.node_id
+            ancestorNames[item.node.node_id] = item.node.name
+          }
         }
       }
 
-      const enriched = Object.values(byLinkId)
-        .filter(({ fromItem, toItem }) => fromItem && toItem)
-        .map(({ fromItem, toItem }) => {
-          const fromNode = fromItem.node   // node we arrived at via TO direction = from_node
-          const toNode   = toItem.node    // node we arrived at via FROM direction = to_node
-          const link     = toItem.link    // same link either way
-          return {
-            link,
-            fromNode,
-            toNode,
-            toPath:      buildPath(toNode.node_id, toNode.name, childToParent, ancestorNames),
-            toGraphName: graphMap[toNode.graph_id] ?? toNode.graph_id,
-          }
-        })
+      const enriched = proposed.map(l => {
+        const fromInReview = l.from_graph_id === reviewGraphId
+        const fromNode = fromInReview
+          ? (fromNodeMap[l.from_node_id] ?? { node_id: l.from_node_id, name: l.from_source_id ?? '(unknown)', graph_id: reviewGraphId })
+          : (peerNodeMap[l.from_node_id] ?? { node_id: l.from_node_id, name: l.from_source_id ?? '(unknown)', graph_id: l.from_graph_id })
+        const toNode = fromInReview
+          ? (peerNodeMap[l.to_node_id] ?? { node_id: l.to_node_id, name: l.to_source_id ?? '(unknown)', graph_id: l.to_graph_id })
+          : (fromNodeMap[l.to_node_id] ?? { node_id: l.to_node_id, name: l.to_source_id ?? '(unknown)', graph_id: reviewGraphId })
+        return {
+          link:        l,
+          fromNode,
+          toNode,
+          toPath:      buildPath(toNode.node_id, toNode.name, childToParent, ancestorNames),
+          toGraphName: graphMap[toNode.graph_id] ?? toNode.graph_id,
+        }
+      })
 
       setQueueItems(enriched)
     } catch (e) {

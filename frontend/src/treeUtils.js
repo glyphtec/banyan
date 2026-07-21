@@ -10,7 +10,11 @@ export function buildHierarchicalFamily(linkTypes) {
 /**
  * Convert a flat export {nodes, links} into nested tree data for react-arborist.
  * Only follows links whose link_type_id is in hierarchicalIds.
- * Returns array of root node objects: { id, name, data, children? }
+ * Returns { tree, orphanCount } where orphanCount is the number of nodes
+ * that have no inbound HIERARCHICAL path from any other node.  In a correctly
+ * structured graph this should be 0 for content nodes (L1 nodes are children
+ * of $ROOT$ which is stripped from the export but whose outbound links are
+ * present).  A non-zero count means nodes are structurally disconnected.
  */
 export function buildTree(nodes, links, hierarchicalIds) {
   const nodeIds = new Set(nodes.map(n => n.node_id))
@@ -42,5 +46,12 @@ export function buildTree(nodes, links, hierarchicalIds) {
   }
 
   const roots = nodes.filter(n => !childSet.has(n.node_id))
-  return roots.map(n => build(n.node_id)).filter(Boolean)
+  const tree  = roots.map(n => build(n.node_id)).filter(Boolean)
+
+  // orphanCount: nodes that are roots but have no children either,
+  // meaning they are completely isolated (no inbound AND no outbound HIERARCHICAL links).
+  // When ALL nodes are orphaned (flat graph), this equals nodes.length.
+  const orphanCount = roots.filter(n => !childrenOf[n.node_id]).length
+
+  return { tree, orphanCount }
 }

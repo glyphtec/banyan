@@ -135,8 +135,8 @@ export function App() {
   const relatedIds   = useMemo(() => new Set(relatedTypes.map(lt => lt.link_type_id)), [relatedTypes])
   const symmetricIds = useMemo(() => new Set(relatedTypes.filter(lt => lt.is_symmetric).map(lt => lt.link_type_id)), [relatedTypes])
 
-  const treeData = useMemo(() => {
-    if (!exportData) return []
+  const { tree: treeData, orphanCount } = useMemo(() => {
+    if (!exportData) return { tree: [], orphanCount: 0 }
     return buildTree(exportData.nodes, exportData.links, hierarchicalIds)
   }, [exportData, hierarchicalIds])
 
@@ -349,6 +349,11 @@ export function App() {
                 <button className="tree-btn" onClick={() => nodeTreeRef.current?.collapseAll()} title="Collapse all">⊖</button>
                 <button className="tree-btn" onClick={() => nodeTreeRef.current?.expandAll()} title="Expand all">⊕</button>
               </div>
+            </div>
+          )}
+          {orphanCount > 0 && (
+            <div className="sidebar-orphan-warn" title={`${orphanCount} node(s) have no inbound HIERARCHICAL path — graph structure is incomplete`}>
+              ⚠ {orphanCount} orphaned node{orphanCount > 1 ? 's' : ''}
             </div>
           )}
           <NodeTree
