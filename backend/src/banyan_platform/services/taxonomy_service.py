@@ -593,6 +593,14 @@ class BanyanService:
                         lk["to_node_id"], lk["to_node_id"]
                     )
                     a["link_type_name"] = lt_id_to_name.get(lk["link_type_id"])
+                    # metadata is stored as a JSON string in DuckDB; parse it so
+                    # consumers (frontend, export consumers) receive a dict not a string.
+                    if isinstance(a.get("metadata"), str):
+                        import json as _json
+                        try:
+                            a["metadata"] = _json.loads(a["metadata"])
+                        except Exception:
+                            a["metadata"] = {}
                     out.append(a)
                 return out
 
