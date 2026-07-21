@@ -48,10 +48,15 @@ export function buildTree(nodes, links, hierarchicalIds) {
   const roots = nodes.filter(n => !childSet.has(n.node_id))
   const tree  = roots.map(n => build(n.node_id)).filter(Boolean)
 
-  // orphanCount: nodes that are roots but have no children either,
-  // meaning they are completely isolated (no inbound AND no outbound HIERARCHICAL links).
-  // When ALL nodes are orphaned (flat graph), this equals nodes.length.
-  const orphanCount = roots.filter(n => !childrenOf[n.node_id]).length
+  // orphanCount: nodes that have no inbound HIERARCHICAL link at all,
+  // including links from $ROOT$ (which is stripped from the export nodes but
+  // whose outbound links are present in the links array).
+  // A node with no to_node_id entry in any hierarchical link is structurally
+  // disconnected from the graph hierarchy.
+  const hasInboundHierarchical = new Set(
+    links.filter(l => hierarchicalIds.has(l.link_type_id)).map(l => l.to_node_id)
+  )
+  const orphanCount = nodes.filter(n => !hasInboundHierarchical.has(n.node_id)).length
 
   return { tree, orphanCount }
 }
