@@ -344,7 +344,7 @@ export function App() {
           </div>
           {exportData && (
             <div className="sidebar-meta">
-              <span>{exportData.graph.name} · {exportData.nodes.length} nodes</span>
+              <span>{exportData.graph.name} · {exportData.nodes.filter(n => n.source_id !== '$ROOT$').length} nodes</span>
               <div className="tree-controls">
                 <button className="tree-btn" onClick={() => nodeTreeRef.current?.collapseAll()} title="Collapse all">⊖</button>
                 <button className="tree-btn" onClick={() => nodeTreeRef.current?.expandAll()} title="Expand all">⊕</button>

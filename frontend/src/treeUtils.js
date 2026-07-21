@@ -10,14 +10,16 @@ export function buildHierarchicalFamily(linkTypes) {
 /**
  * Convert a flat export {nodes, links} into nested tree data for react-arborist.
  * Only follows links whose link_type_id is in hierarchicalIds.
- * Returns { tree, orphanCount } where orphanCount is the number of nodes
- * that have no inbound HIERARCHICAL path from any other node.  In a correctly
- * structured graph this should be 0 for content nodes (L1 nodes are children
- * of $ROOT$ which is stripped from the export but whose outbound links are
- * present).  A non-zero count means nodes are structurally disconnected.
+ * Returns { tree, orphanCount } where orphanCount is the number of content
+ * nodes (non-$ROOT$) that have no inbound HIERARCHICAL link at all.
+ * A non-zero count means nodes are structurally disconnected.
  */
 export function buildTree(nodes, links, hierarchicalIds) {
-  const nodeIds = new Set(nodes.map(n => n.node_id))
+  // Strip $ROOT$ from the display nodes — it is a technical sentinel node
+  // bootstrapped on every graph.  Its outbound links are still used to
+  // determine tree structure and the orphan count.
+  const displayNodes = nodes.filter(n => n.source_id !== '$ROOT$')
+  const nodeIds = new Set(displayNodes.map(n => n.node_id))
   // Exclude links whose parent is not in the visible node set (e.g. $ROOT$ is
   // stripped from the export nodes but its outbound links are still present).
   const hierarchicalLinks = links.filter(
@@ -31,7 +33,7 @@ export function buildTree(nodes, links, hierarchicalIds) {
     childrenOf[l.from_node_id].push(l.to_node_id)
   }
 
-  const nodeMap = Object.fromEntries(nodes.map(n => [n.node_id, n]))
+  const nodeMap = Object.fromEntries(displayNodes.map(n => [n.node_id, n]))
 
   function build(nodeId) {
     const n = nodeMap[nodeId]
@@ -45,7 +47,7 @@ export function buildTree(nodes, links, hierarchicalIds) {
     }
   }
 
-  const roots = nodes.filter(n => !childSet.has(n.node_id))
+  const roots = displayNodes.filter(n => !childSet.has(n.node_id))
   const tree  = roots.map(n => build(n.node_id)).filter(Boolean)
 
   // orphanCount: nodes that have no inbound HIERARCHICAL link at all,
@@ -56,7 +58,7 @@ export function buildTree(nodes, links, hierarchicalIds) {
   const hasInboundHierarchical = new Set(
     links.filter(l => hierarchicalIds.has(l.link_type_id)).map(l => l.to_node_id)
   )
-  const orphanCount = nodes.filter(n => !hasInboundHierarchical.has(n.node_id)).length
+  const orphanCount = displayNodes.filter(n => !hasInboundHierarchical.has(n.node_id)).length
 
   return { tree, orphanCount }
 }

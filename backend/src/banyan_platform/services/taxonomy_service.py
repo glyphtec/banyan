@@ -566,9 +566,11 @@ class BanyanService:
                 raise KeyError(f"Graph '{graph_id}' not found.")
 
             all_nodes = self.nodes.list_by_graph(conn, graph_id)
-            # Exclude the implicit $ROOT$ node — it is bootstrapped automatically
-            # on every graph creation and is not part of user-managed content.
-            nodes = [n for n in all_nodes if n["source_id"] != self._ROOT_SOURCE_ID]
+            # Include $ROOT$ in the export — the export is a complete artifact
+            # and $ROOT$'s links reference it by node_id.  The import_graph
+            # method already handles $ROOT$ correctly (skips re-insertion,
+            # maps the UUID).  Display filtering happens at the consumer layer.
+            nodes = all_nodes
 
             # node_id → source_id (include $ROOT$ so link annotations are complete)
             node_id_to_source: dict[str, str] = {
