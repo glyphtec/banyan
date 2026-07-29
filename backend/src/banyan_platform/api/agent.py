@@ -521,7 +521,76 @@ def _dispatch(
 # Router factory
 # ---------------------------------------------------------------------------
 
-def build_agent_router(service: "BanyanService") -> APIRouter:
+def _sanitize_session(messages: list[dict]) -> None:
+    """
+    Repair orphaned tool_use blocks in the session history.
+
+    Anthropic requires that every assistant message containing tool_use
+    blocks is immediately followed by a user message with tool_result
+    blocks.  If the session was interrupted between those two appends
+    (exception, loop-limit exit, etc.) the next API call will be rejected
+    with a 400.  This function detects the pattern and inserts synthetic
+    tool_result blocks so the session can resume.
+    """
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg["role"] != "assistant":
+            i += 1
+            continue
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            i += 1
+            continue
+
+        tool_use_ids = []
+        for b in content:
+            if hasattr(b, "type") and b.type == "tool_use":
+                tool_use_ids.append(b.id)
+            elif isinstance(b, dict) and b.get("type") == "tool_use":
+                tool_use_ids.append(b.get("id"))
+
+        if not tool_use_ids:
+            i += 1
+            continue
+
+        # Check if the immediately following message has the matching tool_results
+        next_idx = i + 1
+        paired = False
+        if next_idx < len(messages):
+            nxt = messages[next_idx]
+            if nxt["role"] == "user":
+                nc = nxt.get("content", [])
+                if isinstance(nc, list):
+                    result_ids = {
+                        b.get("tool_use_id") if isinstance(b, dict)
+                        else getattr(b, "tool_use_id", None)
+                        for b in nc
+                        if (isinstance(b, dict) and b.get("type") == "tool_result")
+                        or (hasattr(b, "type") and b.type == "tool_result")
+                    }
+                    paired = all(tid in result_ids for tid in tool_use_ids if tid)
+
+        if not paired:
+            log.warning(
+                "Session repair: inserting synthetic tool_results for %d orphaned tool_use block(s)",
+                len(tool_use_ids),
+            )
+            synthetic = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tid,
+                    "content": '{"error": "tool call was interrupted; please retry if needed"}',
+                }
+                for tid in tool_use_ids if tid
+            ]
+            messages.insert(next_idx, {"role": "user", "content": synthetic})
+            i += 2   # skip past the newly inserted message
+        else:
+            i += 1
+
+
+
     """
     Return a FastAPI router for /api/v1/agent.
 
@@ -556,6 +625,7 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
         actions: list[dict] = []
 
         for _ in range(_MAX_LOOPS):
+            _sanitize_session(session)
             resp = _client.messages.create(
                 model=_MODEL,
                 system=system_prompt,
