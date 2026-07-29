@@ -517,10 +517,6 @@ def _dispatch(
         return {"error": str(exc)}
 
 
-# ---------------------------------------------------------------------------
-# Router factory
-# ---------------------------------------------------------------------------
-
 def _sanitize_session(messages: list[dict]) -> None:
     """
     Repair orphaned tool_use blocks in the session history.
@@ -590,7 +586,11 @@ def _sanitize_session(messages: list[dict]) -> None:
             i += 1
 
 
+# ---------------------------------------------------------------------------
+# Router factory
+# ---------------------------------------------------------------------------
 
+def build_agent_router(service: "BanyanService") -> APIRouter:
     """
     Return a FastAPI router for /api/v1/agent.
 
@@ -605,7 +605,6 @@ def _sanitize_session(messages: list[dict]) -> None:
         _client = None
 
     router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
-
     # ── POST /chat ─────────────────────────────────────────────────────────
 
     @router.post("/chat")
