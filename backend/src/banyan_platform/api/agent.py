@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 _AGENT_ACTOR = "system:mcp-agent"
 _MODEL       = "claude-sonnet-4-6"
-_MAX_TOKENS  = 4096
+_MAX_TOKENS  = 8192
 _MAX_LOOPS   = 25      # safety guard against runaway tool-call loops
 
 # ---------------------------------------------------------------------------
@@ -97,11 +97,20 @@ meta: keys are system-owned; do not overwrite them. \
 Prose-only entries without a tier prefix are non-compliant; prepend the correct tier \
 before using them.
 
+CROSSWALK COVERAGE PATTERN
+To check which SR codes for a domain are already covered \u2014 ONE 2-step BQL, not per-node queries:
+  Start: source_id of domain Service Requests L2 (e.g. 'sdoh:food-insecurity/service-requests')
+  Step 1 (FROM HAS_MEMBER!, graphs:[SNOMED SDOH Service Requests Slice], collect:true): all SR codes
+  Step 2 (FROM SAME_AS!+SAME_AS_PROPOSED!, graphs:[Open Eligibility], collect:true): covered SR codes
+  _step==1 items \u2192 all SR codes; _step==2 items \u2192 link.from_source_id = already-covered SR source_id
+  Uncovered = step-1 source_ids minus covered source_ids
+[NEVER] check coverage by issuing one BQL query per SR code.
+
 UI CONTROL
 - After locating a specific node the user asked about, call ui_navigate_node to reveal it \
 in the tree and detail panels. Use the graph_id and node_id from the query result.
 - After shifting analytical focus to a different graph, call ui_select_graph.
-- Only call these for intentional focus shifts — not for every node in a bulk listing.
+- Only call these for intentional focus shifts \u2014 not for every node in a bulk listing.
 """
 
 
@@ -662,6 +671,12 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
                             "content": json.dumps(result, default=str),
                         })
                 session.append({"role": "user", "content": tool_results})
+                continue
+
+            # max_tokens: model ran out of output space mid-turn.
+            # Continue the loop — the session history is valid, the model
+            # just needs another turn to finish its reasoning or tool calls.
+            if resp.stop_reason == "max_tokens":
                 continue
 
             # Unexpected stop reason
