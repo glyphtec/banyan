@@ -33,7 +33,7 @@ The origin graph for the query. All traversal begins here unless a step explicit
 Specified by `name` or `id`.
 
 ```json
-{ "graph": { "name": "Gravity SDOH" } }
+{ "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" } }
 { "graph": { "id": "27c5159e-ea26-4b9d-8d66-427977e74c3d" } }
 ```
 
@@ -240,12 +240,12 @@ Equivalent to the export endpoint. Default step (FROM, all types, unlimited dept
 
 ### Subtree from a named node — starting only, no steps
 
-All descendants of "Benefits" via any link type, unlimited depth.
+All descendants of "Food" via any link type, unlimited depth.
 
 ```json
 {
   "graph": { "name": "Open Eligibility" },
-  "starting": { "name": "Benefits" }
+  "starting": { "name": "Food" }
 }
 ```
 
@@ -255,13 +255,13 @@ Traverse TO (inbound) HIERARCHICAL links from a node upward. Returns the full an
 
 ```json
 {
-  "graph": { "name": "Gravity SDOH" },
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
   "starting": { "name": "Elder Abuse" },
   "steps": [
     {
       "direction": "TO",
       "link_types": ["HIERARCHICAL"],
-      "depth": 99
+      "depth": 50
     }
   ],
   "result": { "format": "LINK_NODE", "include_seed": false }
@@ -274,7 +274,7 @@ Step 1 walks TO the immediate parent (`collect: false` — used as a waypoint on
 
 ```json
 {
-  "graph": { "name": "Gravity SDOH" },
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
   "starting": { "name": "Elder Abuse" },
   "steps": [
     {
@@ -304,7 +304,7 @@ Step 1 walks TO the immediate parent (`collect: false` — used as a waypoint on
 
 ```json
 {
-  "graph": { "name": "Gravity SDOH" },
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
   "starting": {
     "or": [
       { "name": "Elder Abuse" },
@@ -325,22 +325,25 @@ Step 1 walks TO the immediate parent (`collect: false` — used as a waypoint on
 }
 ```
 
-### Cross-graph: find all OE nodes linked to a Gravity subtree via HAS_MEMBER
+### Cross-graph: clinical codes that belong to a Gravity domain
+
+`HAS_MEMBER` links run from a Gravity value-set node *to* codes in clinical terminology graphs (SNOMED CT, ICD-10-CM), not to Open Eligibility. Step 1 walks down to the domain's value-set nodes and is used only as a waypoint; step 2 crosses into the terminology graphs.
 
 ```json
 {
-  "graph": { "name": "Gravity SDOH" },
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
   "starting": { "name": "Food Insecurity" },
   "steps": [
     {
       "direction": "FROM",
       "link_types": ["HIERARCHICAL"],
-      "depth": 99
+      "depth": 2,
+      "collect": false
     },
     {
-      "direction": "WITH",
+      "direction": "FROM",
       "link_types": ["HAS_MEMBER!"],
-      "graphs": ["Open Eligibility"]
+      "graphs": ["SNOMED SDOH Service Requests Slice", "SNOMED CT SDOH Slice", "ICD-10-CM SDOH Slice"]
     }
   ],
   "result": { "format": "NODE", "include_seed": false }
@@ -384,6 +387,202 @@ Step 3 collects ancestor nodes for each step-2 peer, enabling breadcrumb path co
 
 ---
 
+## Cookbook — the Social–Clinical Crosswalk
+
+These recipes use the flagship demo dataset (see the [README](../README.md)). They are real queries that run against it; counts in your instance will differ.
+
+**Graphs**
+
+| Graph name | What it is | `source_id` convention |
+|---|---|---|
+| `Gravity SDOH Clinical Care STU 2.3` | Clinical social-risk domains (L1) and their value-set activities (L2) | `sdoh:food-insecurity`, `sdoh:food-insecurity/service-requests` |
+| `Open Eligibility` | Social-service taxonomy | `OE.1102` |
+| `SNOMED SDOH Service Requests Slice` | SNOMED CT codes for service requests | `http://snomed.info/sct\|951351000124101` |
+| `SNOMED CT SDOH Slice` | SNOMED CT diagnoses, screening and other codes | `http://snomed.info/sct\|<code>` |
+| `ICD-10-CM SDOH Slice` | ICD-10-CM Z-codes and related | code-system-prefixed |
+
+**Link types used**
+
+| Link type | Direction in the demo data | Meaning |
+|---|---|---|
+| `HIERARCHICAL` | parent → child, same graph | Taxonomy structure |
+| `HAS_MEMBER` | Gravity value-set node → clinical code | The code belongs to the value set |
+| `SAME_AS` | SNOMED code → OE category | Approved crosswalk assertion. Metadata: `link_provenance: "asserted"`, `approved_by` |
+| `SAME_AS_PROPOSED` / `TERM_SIMILAR_PROPOSED` | Same | Agent-proposed mapping awaiting review. Metadata: `confidence_level`, `confidence_basis`, `agent_rationale`, `caveats`, later `review_status` / `reviewed_by` / `reviewer_note` |
+| `TERM_EQUIVALENT` | OE node ↔ OE node | The same concept filed under two browse paths |
+
+### 1. What is inside a domain?
+
+```json
+{
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
+  "starting": { "name": "Food Insecurity" },
+  "steps": [{ "direction": "FROM", "link_types": ["HIERARCHICAL"], "depth": 1 }],
+  "result": { "format": "NODE" }
+}
+```
+
+Returns the domain plus its L2 value-set nodes (Service Requests, Procedures, Goals, Diagnoses, Screening Assessments, ...).
+
+### 2. Which codes define a need? (clinical side)
+
+See *Cross-graph: clinical codes that belong to a Gravity domain* under Examples. The same pattern works for any Gravity domain by changing `starting`.
+
+### 3. The closed loop: clinical code → service category
+
+*"A patient needs this service. Where do I send them?"* Start from a service-request code, follow its crosswalk to Open Eligibility, then step up to the parent category.
+
+```json
+{
+  "graph": { "name": "SNOMED SDOH Service Requests Slice" },
+  "starting": { "source_id": "http://snomed.info/sct|951411000124107" },
+  "steps": [
+    {
+      "direction": "FROM",
+      "link_types": ["SAME_AS!", "SAME_AS_PROPOSED!"],
+      "depth": 1,
+      "graphs": ["Open Eligibility"]
+    },
+    {
+      "direction": "TO",
+      "link_types": ["HIERARCHICAL"],
+      "depth": 1,
+      "graphs": ["Open Eligibility"]
+    }
+  ],
+  "result": { "format": "LINK_NODE", "include_seed": true }
+}
+```
+
+For "Provision of healthy groceries ..." this returns the code itself (step 0), the OE categories *Help Pay for Food* and *Free Meals* (step 1, with each link's provenance metadata), and their parent *Food* (step 2).
+
+- Step 2 must list `graphs` too: the default scope is the origin graph only.
+- *Food* appears twice because two step-1 nodes share that parent. Deduplicate by `node_id`.
+- Including `SAME_AS_PROPOSED!` lets you see unreviewed candidates; check `link.metadata.link_provenance` (`asserted` vs `proposed`) to tell them apart, or drop it to return only approved mappings.
+
+### 4. The reverse: which clinical codes map to a service category?
+
+```json
+{
+  "graph": { "name": "Open Eligibility" },
+  "starting": { "source_id": "OE.1132" },
+  "steps": [
+    {
+      "direction": "TO",
+      "link_types": ["SAME_AS!"],
+      "depth": 1,
+      "graphs": ["SNOMED SDOH Service Requests Slice"]
+    }
+  ],
+  "result": { "format": "LINK_NODE", "include_seed": false }
+}
+```
+
+Crosswalk links are stored in one direction (clinical → OE here), so reading them from the OE side uses `TO`. If you don't know which way a link was recorded, use `WITH`.
+
+### 5. Coverage: which service-request codes are not yet mapped?
+
+One query, then a set difference on the client:
+
+```json
+{
+  "graph": { "name": "Gravity SDOH Clinical Care STU 2.3" },
+  "starting": { "source_id": "sdoh:food-insecurity/service-requests" },
+  "steps": [
+    {
+      "direction": "FROM",
+      "link_types": ["HAS_MEMBER!"],
+      "graphs": ["SNOMED SDOH Service Requests Slice"],
+      "depth": 1
+    },
+    {
+      "direction": "FROM",
+      "link_types": ["SAME_AS!", "SAME_AS_PROPOSED!"],
+      "graphs": ["Open Eligibility"],
+      "depth": 1
+    }
+  ],
+  "result": { "format": "LINK_NODE", "include_seed": false, "verbose": true }
+}
+```
+
+- `_step == 1` items are *all* codes in the value set.
+- `_step == 2` items carry `link.from_node_id`, the codes that already have a crosswalk link.
+- **Uncovered = step-1 `node_id`s minus step-2 `link.from_node_id`s.**
+
+Do this in one query, never with one query per code.
+
+### 6. The review queue: what is waiting for a human?
+
+```json
+{
+  "graph": { "name": "Open Eligibility" },
+  "steps": [
+    { "direction": "FROM", "link_types": ["HIERARCHICAL"], "depth": 50, "collect": false },
+    {
+      "direction": "TO",
+      "link_types": ["SAME_AS_PROPOSED!", "TERM_SIMILAR_PROPOSED!"],
+      "depth": 1,
+      "graphs": ["*"],
+      "collect": true
+    }
+  ],
+  "result": { "format": "LINK_NODE", "include_seed": false }
+}
+```
+
+Step 1 fans out to every OE node as a waypoint; step 2 collects the proposed links pointing at them. Each item's `link.metadata` holds the agent's confidence, evidence, rationale and caveats, plus `review_status` once a reviewer has touched it. Because proposal state is a *link type*, "what is pending" needs no special endpoint.
+
+### 7. Polyhierarchy: the same concept under two browse paths
+
+Open Eligibility is single-parent, so some concepts appear twice (e.g. *Emergency Food*). Those are tied together with `TERM_EQUIVALENT` links.
+
+```json
+{
+  "graph": { "name": "Open Eligibility" },
+  "starting": { "source_id": "OE.1128" },
+  "steps": [
+    {
+      "direction": "WITH",
+      "link_types": ["TERM_EQUIVALENT", "TERM_EQUIVALENT_PROPOSED"],
+      "depth": 1
+    }
+  ],
+  "result": { "format": "NODE", "include_seed": false }
+}
+```
+
+---
+
+## Calling BQL
+
+| Surface | How |
+|---|---|
+| REST | `POST /api/v1/query` with the query object as the JSON body |
+| MCP | Tool `banyan_query`, argument `query` |
+| Chat agent | Tool `banyan_query` |
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"graph":{"name":"Open Eligibility"},"starting":{"source_id":"OE.1102"},"steps":[{"direction":"FROM","link_types":["HIERARCHICAL"],"depth":1}],"result":{"format":"NODE"}}'
+```
+
+An unknown graph returns HTTP 404 with a `detail` message. A `starting` predicate matching more than `MAX_SEED_SIZE` nodes is rejected; narrow it.
+
+## Gotchas
+
+- **`graphs` is per step and defaults to the origin graph only.** Any step that should enter another graph must name it (or use `["*"]`), including a later step that needs to stay inside that other graph, as in recipe 3.
+- **`link_types` matches a family.** `"RELATED"` includes `SAME_AS`, `HAS_MEMBER` and the rest; `"SAME_AS!"` matches that exact type only.
+- **Duplicates are normal.** `seen` resets per step, so a node can appear in several steps or twice within one `LINK_NODE` step (once per incoming link). Deduplicate by `node_id`.
+- **`LINK_NODE` counts links, not nodes.** `total_count` and the number of items are link-based, while the `output_count` in verbose step diagnostics counts distinct nodes.
+- **Link direction is data.** Symmetric types (`SAME_AS`, `TERM_EQUIVALENT`, ...) are stored in one direction. Use `WITH` when you don't know which.
+- **`depth` is clamped.** "Unlimited" and anything above `MAX_DEPTH_HARD` (50) become 50.
+- **`seed_count: 0` means the `starting` predicate matched nothing**, usually a name typo or the wrong graph. `total_count: 0` with a positive `seed_count` means the traversal found nothing from valid seeds.
+- **`limit` truncates the result set**, and verbose step diagnostics will show `truncated: true`.
+
+---
+
 ## Implementation Note — Storage Backend
 
 **Development runtime:** DuckDB (embedded, single-file). Sufficient for graphs up to ~1–5M nodes. Requires `CAST(uuid_col AS VARCHAR)` workarounds due to a zone-map optimizer bug in DuckDB 1.x with UUID columns (see project notes). Seed resolution (`name_contains`) requires full table scans.
@@ -404,9 +603,9 @@ Step 3 collects ancestor nodes for each step-2 peer, enabling breadcrumb path co
 
 | Cap | Purpose |
 |-----|---------|
-| `MAX_SEED_SIZE` | Prevents unbounded fan-out from overly broad `starting` predicates |
-| `MAX_STEP_BUFFER` | Truncates runaway intermediate node sets; sets `truncated: true` in verbose diagnostics |
-| `MAX_DEPTH_HARD` | Server-side ceiling; "unlimited" in the query maps to this value |
+| `MAX_SEED_SIZE` (500) | Prevents unbounded fan-out from overly broad `starting` predicates; the query is rejected |
+| `MAX_STEP_BUFFER` (5,000) | Truncates runaway intermediate node sets; sets `truncated: true` in verbose diagnostics |
+| `MAX_DEPTH_HARD` (50) | Server-side ceiling; "unlimited" in the query maps to this value |
 
 ---
 
