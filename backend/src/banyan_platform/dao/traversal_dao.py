@@ -22,19 +22,100 @@ def _deserialise_nodes(cursor) -> list[dict]:
 
 class TraversalDAO:
     """
-    Graph traversal queries using recursive CTEs.
+    Graph traversal queries (breadth-first, cycle-safe).
 
     These queries intentionally span both the `node` and `link` tables.
     They live here rather than in NodeDAO or LinkDAO because they are
     inherently cross-entity operations.
 
-    Both DuckDB and PostgreSQL support the standard WITH RECURSIVE syntax used here.
+    The walks are iterative rather than WITH RECURSIVE; see `_walk`.
 
     The caller (service layer) owns the connection and transaction.
     """
 
+    _MAX_DEPTH = 50   # same ceiling as BQL's MAX_DEPTH_HARD
+    _CHUNK = 500      # ids per IN (...) list
+
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    def _walk(
+        self,
+        conn,
+        graph_id: str,
+        start_node_id: str,
+        *,
+        outbound: bool,
+        link_type_id: str | None,
+        max_depth: int,
+    ) -> list[dict]:
+        """
+        Breadth-first walk from *start_node_id* (returned at depth 0).
+
+        Each node is returned once, at its shallowest depth.  A plain recursive
+        CTE over all link types never terminates on cycles (symmetric link types
+        such as TERM_EQUIVALENT are cycles by construction) and a single
+        connection stalls every other request while it spins, so the visited set
+        is kept here instead.  Plain per-level queries also behave identically
+        on DuckDB and PostgreSQL.
+        """
+        p = self.db.placeholder
+        near, far = ("from_node_id", "to_node_id") if outbound else ("to_node_id", "from_node_id")
+        link_filter = f"AND CAST(l.link_type_id AS VARCHAR) = {p}" if link_type_id is not None else ""
+        node_cols = "n.node_id, n.graph_id, n.node_type_id, n.source_id, n.name, n.notes, n.metadata"
+
+        start = _deserialise_nodes(conn.execute(
+            f"SELECT {node_cols} FROM node n "
+            f"WHERE CAST(n.node_id AS VARCHAR) = {p} AND CAST(n.graph_id AS VARCHAR) = {p}",
+            [start_node_id, graph_id],
+        ))
+        if not start:
+            return []
+
+        start[0]["depth"] = 0
+        results = [start[0]]
+        seen = {str(start[0]["node_id"]).lower()}
+        frontier = [str(start[0]["node_id"])]
+
+        for depth in range(1, max_depth + 1):
+            if not frontier:
+                break
+            reached: list[str] = []
+            for i in range(0, len(frontier), self._CHUNK):
+                chunk = frontier[i:i + self._CHUNK]
+                marks = ", ".join([p] * len(chunk))
+                params: list = [*chunk, graph_id]
+                if link_type_id is not None:
+                    params.append(link_type_id)
+                cursor = conn.execute(
+                    f"""
+                    SELECT DISTINCT CAST(l.{far} AS VARCHAR) FROM link l
+                    WHERE CAST(l.{near} AS VARCHAR) IN ({marks})
+                      AND CAST(l.from_graph_id AS VARCHAR) = {p}
+                      AND l.is_disabled = FALSE
+                      {link_filter}
+                    """,
+                    params,
+                )
+                for (nid,) in cursor.fetchall():
+                    if nid.lower() not in seen:
+                        seen.add(nid.lower())
+                        reached.append(nid)
+
+            frontier = []
+            for i in range(0, len(reached), self._CHUNK):
+                chunk = reached[i:i + self._CHUNK]
+                marks = ", ".join([p] * len(chunk))
+                for node in _deserialise_nodes(conn.execute(
+                    f"SELECT {node_cols} FROM node n WHERE CAST(n.node_id AS VARCHAR) IN ({marks})",
+                    chunk,
+                )):
+                    node["depth"] = depth
+                    results.append(node)
+                    frontier.append(str(node["node_id"]))
+
+        results.sort(key=lambda d: (d["depth"], d["name"]))
+        return results
 
     def get_subtree(
         self,
@@ -42,49 +123,21 @@ class TraversalDAO:
         graph_id: str,
         root_node_id: str,
         link_type_id: str | None = None,
+        max_depth: int = _MAX_DEPTH,
     ) -> list[dict]:
         """
         Return *root_node_id* and all its descendants within *graph_id*.
 
-        Results include a `depth` column (0 = root).  Ordered depth-first by
-        depth then name for predictable display ordering.
+        Results include a `depth` column (0 = root), ordered by depth then name.
+        Each node appears once, at its shallowest depth; cycles terminate.
 
         *link_type_id* — restrict traversal to a specific link type (e.g. only
         HIERARCHICAL links).  When None, all non-disabled links are followed.
         """
-        p = self.db.placeholder
-        link_filter = f"AND CAST(l.link_type_id AS VARCHAR) = {p}" if link_type_id is not None else ""
-        sql = f"""
-            WITH RECURSIVE subtree AS (
-                -- Anchor: the root node itself
-                SELECT
-                    n.node_id, n.graph_id, n.node_type_id,
-                    n.source_id, n.name, n.notes, n.metadata,
-                    0 AS depth
-                FROM node n
-                WHERE CAST(n.node_id AS VARCHAR) = {p}
-                  AND CAST(n.graph_id AS VARCHAR) = {p}
-
-                UNION ALL
-
-                -- Recursive: follow outbound links to children
-                SELECT
-                    n.node_id, n.graph_id, n.node_type_id,
-                    n.source_id, n.name, n.notes, n.metadata,
-                    st.depth + 1
-                FROM node n
-                JOIN link l ON l.to_node_id = n.node_id
-                JOIN subtree st ON l.from_node_id = st.node_id
-                WHERE CAST(l.from_graph_id AS VARCHAR) = {p}
-                  AND l.is_disabled = FALSE
-                  {link_filter}
-            )
-            SELECT * FROM subtree ORDER BY depth, name
-        """
-        params: list = [root_node_id, graph_id, graph_id]
-        if link_type_id is not None:
-            params.append(link_type_id)
-        return _deserialise_nodes(conn.execute(sql, params))
+        return self._walk(
+            conn, graph_id, root_node_id,
+            outbound=True, link_type_id=link_type_id, max_depth=max_depth,
+        )
 
     def get_ancestors(
         self,
@@ -92,48 +145,19 @@ class TraversalDAO:
         graph_id: str,
         node_id: str,
         link_type_id: str | None = None,
+        max_depth: int = _MAX_DEPTH,
     ) -> list[dict]:
         """
         Return all ancestors of *node_id* within *graph_id*, excluding the node itself.
 
         `depth` = 1 is the immediate parent(s); higher values are further up the tree.
-        In a polyhierarchical graph there may be multiple rows at each depth level.
+        Each node appears once, at its shallowest depth; cycles terminate.
         """
-        p = self.db.placeholder
-        link_filter = f"AND CAST(l.link_type_id AS VARCHAR) = {p}" if link_type_id is not None else ""
-        sql = f"""
-            WITH RECURSIVE ancestors AS (
-                -- Anchor: the starting node (excluded from final result)
-                SELECT
-                    n.node_id, n.graph_id, n.node_type_id,
-                    n.source_id, n.name, n.notes, n.metadata,
-                    0 AS depth
-                FROM node n
-                WHERE CAST(n.node_id AS VARCHAR) = {p}
-                  AND CAST(n.graph_id AS VARCHAR) = {p}
-
-                UNION ALL
-
-                -- Recursive: walk inbound links to parents
-                SELECT
-                    n.node_id, n.graph_id, n.node_type_id,
-                    n.source_id, n.name, n.notes, n.metadata,
-                    a.depth + 1
-                FROM node n
-                JOIN link l ON l.from_node_id = n.node_id
-                JOIN ancestors a ON l.to_node_id = a.node_id
-                WHERE CAST(l.from_graph_id AS VARCHAR) = {p}
-                  AND l.is_disabled = FALSE
-                  {link_filter}
-            )
-            SELECT * FROM ancestors
-            WHERE depth > 0
-            ORDER BY depth, name
-        """
-        params: list = [node_id, graph_id, graph_id]
-        if link_type_id is not None:
-            params.append(link_type_id)
-        return _deserialise_nodes(conn.execute(sql, params))
+        rows = self._walk(
+            conn, graph_id, node_id,
+            outbound=False, link_type_id=link_type_id, max_depth=max_depth,
+        )
+        return [r for r in rows if r["depth"] > 0]
 
     def get_impact_summary(
         self,

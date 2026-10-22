@@ -81,3 +81,39 @@ def test_get_impact_summary_detects_cross_graph_links(service):
     impact = service.get_impact_summary(gid, root["node_id"])
     assert impact["cross_graph_link_count"] >= 1
 
+
+def test_traversal_terminates_on_cycles(service):
+    """
+    A non-hierarchical link back up the tree (e.g. TERM_EQUIVALENT) forms a
+    cycle when all link types are followed.  Traversal must terminate and
+    return each node once.
+    """
+    gid, lt_id, root, cat_a, cat_b, cat_a1 = _setup_tree(service)
+    te = next(lt for lt in service.get_link_types() if lt["name"] == "TERM_EQUIVALENT")
+    # cat_a1 -> cat_a closes the loop cat_a -> cat_a1 -> cat_a
+    service.create_link(
+        te["link_type_id"], gid, gid, cat_a1["node_id"], cat_a["node_id"], actor_id=ACTOR,
+    )
+
+    subtree = service.get_subtree(gid, root["node_id"])
+    ids = [n["node_id"] for n in subtree]
+    assert len(ids) == len(set(ids)) == 4
+
+    impact = service.get_impact_summary(gid, root["node_id"])
+    assert impact["descendant_count"] == 3
+
+    ancestors = service.get_ancestors(gid, cat_a["node_id"])
+    anc_ids = {n["node_id"] for n in ancestors}
+    assert anc_ids == {root["node_id"], cat_a1["node_id"]}
+
+
+def test_subtree_returns_shared_child_once_at_shallowest_depth(service):
+    gid, lt_id, root, cat_a, cat_b, cat_a1 = _setup_tree(service)
+    # Diamond: cat_a1 is reachable via cat_a (depth 2) and directly from root (depth 1)
+    service.create_link(lt_id, gid, gid, root["node_id"], cat_a1["node_id"], actor_id=ACTOR)
+
+    subtree = service.get_subtree(gid, root["node_id"], link_type_id=lt_id)
+    matches = [n for n in subtree if n["node_id"] == cat_a1["node_id"]]
+    assert len(matches) == 1
+    assert matches[0]["depth"] == 1
+
