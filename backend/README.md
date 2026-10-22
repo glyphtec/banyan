@@ -1,12 +1,13 @@
 # Backend
 
-Layered Python backend for an embeddable taxonomy platform:
+Layered Python backend for an embeddable taxonomy platform. See the [project README](../README.md) for the overview.
 
-- `persistence/`: DDL and connection adapters for PostgreSQL and SQLite
+- `persistence/`: DDL and connection adapters for DuckDB and PostgreSQL
 - `dao/`: data access layer
 - `services/`: business logic layer
 - `api/rest.py`: REST exposure
-- `api/graphql.py`: GraphQL exposure
+- `api/mcp_server.py`: MCP (FastMCP) exposure for agents
+- `api/agent.py`: built-in chat agent
 
 Run locally (all commands from the `backend/` directory):
 

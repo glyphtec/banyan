@@ -186,12 +186,12 @@ Banyan is a proof of concept, not a hardened product. Please read this before po
 
 **Engine**
 - [ ] Enforce graph topology constraints (polyhierarchy, max depth). They are modeled in the schema only.
-- [ ] Closure table for stakeholder resolution and impact analysis. Recursive CTEs are correct at pilot scale but not tuned for large graphs.
+- [ ] Single DuckDB connection: all requests are serialized, and there are no per-request timeouts, so one slow or runaway query stalls the whole server (a cyclic-traversal bug did exactly this and is now fixed; the exposure remains). Needs request timeouts and/or connection pooling (PostgreSQL).
+- [ ] Closure table for stakeholder resolution and impact analysis. Traversals are correct at pilot scale but not tuned for large graphs.
 - [ ] DuckDB WAL replay can fail after an unclean shutdown. Mitigated by periodic checkpoints and the backup and recovery utilities, but not eliminated.
 
 **Product**
 - [ ] Practitioner-facing natural-language query experience (designed, not built). The current UI is a structured inspection and review tool.
-- [ ] Demo walkthrough and refreshed BQL documentation.
 - [ ] Repo hygiene: remove the committed `banyan.zip`.
 
 The reference data pipeline depends on externally licensed vocabularies you must obtain yourself.
@@ -202,7 +202,8 @@ The reference data pipeline depends on externally licensed vocabularies you must
 |---|---|
 | [BANYAN_SYSTEM_ARCHITECTURE.md](docs/BANYAN_SYSTEM_ARCHITECTURE.md) | Operating constraints, ledger design, stakeholder governance |
 | [Banyan_ Entities and Methods.md](<docs/Banyan_ Entities and Methods.md>) | Entity model and verbs |
-| [Banyan Project_ BQL Spec.md](<docs/Banyan Project_ BQL Spec.md>) | BQL language reference |
+| [DEMO_WALKTHROUGH.md](docs/DEMO_WALKTHROUGH.md) | A 15-minute guided tour of the crosswalk demo |
+| [Banyan Project_ BQL Spec.md](<docs/Banyan Project_ BQL Spec.md>) | BQL language reference and crosswalk cookbook |
 | [Social_clinicial_crosswalk_POC.md](docs/Social_clinicial_crosswalk_POC.md) | The flagship crosswalk project |
 | [CROSSWALK_VIEWER_UX_SPEC.md](docs/CROSSWALK_VIEWER_UX_SPEC.md) | Viewer and practitioner-query UX |
 
