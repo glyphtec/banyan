@@ -285,6 +285,7 @@ class QueryDAO:
                 CAST(l.to_graph_id   AS VARCHAR) AS to_graph_id,
                 {parent_col}                    AS parent_node_id,
                 '{direction}'                   AS traversal_direction,
+                l.metadata                      AS link_metadata,
                 {_NODE_COLS}
             FROM link l
             JOIN frontier f ON {frontier_join}
@@ -312,6 +313,11 @@ class QueryDAO:
                 "from_graph_id": d["from_graph_id"],
                 "to_graph_id": d["to_graph_id"],
                 "traversal_direction": d["traversal_direction"],
+                "metadata": (
+                    json.loads(d["link_metadata"])
+                    if isinstance(d.get("link_metadata"), str)
+                    else (d.get("link_metadata") or {})
+                ),
             }
             parent_node_id = str(d["parent_node_id"])
             node = {

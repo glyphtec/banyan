@@ -354,9 +354,22 @@ _TOOLS: list[dict] = [
             "graph_name   — graph name string (resolved server-side).\n"
             "default_link_type_name — link type name applied to all CREATE_LINK ops without an explicit link_type_id.\n\n"
             "link_operations items:\n"
-            "  { \"verb\": \"CREATE_LINK\",  \"data\": { \"from_source_id\": \"...\", \"to_source_id\": \"...\" } }\n"
+            "  { \"verb\": \"CREATE_LINK\",  \"data\": {\n"
+            "      \"from_source_id\": \"...\",\n"
+            "      \"to_source_id\": \"...\",\n"
+            "      \"to_graph_name\": \"...\",        // optional: for cross-graph links\n"
+            "      \"metadata\": {                  // REQUIRED for proposed crosswalk links\n"
+            "        \"link_provenance\": \"proposed\",\n"
+            "        \"confidence_level\": \"HIGH|MEDIUM|LOW|UNCERTAIN\",\n"
+            "        \"confidence_basis\": [\"name_similarity\",\"domain_alignment\"],\n"
+            "        \"agent_rationale\": \"...\",\n"
+            "        \"caveats\": null\n"
+            "      }\n"
+            "  } }\n"
             "  { \"verb\": \"DESTROY_LINK\", \"data\": { \"link_id\": \"...\" } }\n\n"
-            "For cross-graph CREATE_LINK add \"to_graph_name\" in data.\n"
+            "IMPORTANT: Always include the metadata object in every CREATE_LINK data dict\n"
+            "when creating proposed crosswalk links. Missing metadata means the reviewer\n"
+            "cannot evaluate confidence and the link will be rejected.\n"
             "Returns counters: links_created, links_destroyed, ledger_entries."
         ),
         "input_schema": {
@@ -609,7 +622,10 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
     try:
         import anthropic as _anthropic  # noqa: PLC0415
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        _client = _anthropic.Anthropic(api_key=api_key) if api_key else None
+        _client = _anthropic.Anthropic(
+            api_key=api_key,
+            timeout=_anthropic.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0),
+        ) if api_key else None
     except ImportError:
         _client = None
 
@@ -632,55 +648,69 @@ def build_agent_router(service: "BanyanService") -> APIRouter:
         tool_calls_log: list[dict] = []
         actions: list[dict] = []
 
-        for _ in range(_MAX_LOOPS):
-            _sanitize_session(session)
-            resp = _client.messages.create(
-                model=_MODEL,
-                system=system_prompt,
-                tools=_TOOLS,
-                messages=session,
-                max_tokens=_MAX_TOKENS,
-            )
-
-            # Append assistant turn (may contain text + tool_use blocks)
-            session.append({"role": "assistant", "content": resp.content})
-
-            if resp.stop_reason == "end_turn":
-                # Extract the final text reply
-                text = next(
-                    (b.text for b in resp.content if hasattr(b, "text")),
-                    "(no text response)",
+        try:
+            for _ in range(_MAX_LOOPS):
+                _sanitize_session(session)
+                resp = _client.messages.create(
+                    model=_MODEL,
+                    system=system_prompt,
+                    tools=_TOOLS,
+                    messages=session,
+                    max_tokens=_MAX_TOKENS,
                 )
-                return {"reply": text, "tool_calls": tool_calls_log, "actions": actions}
 
-            if resp.stop_reason == "tool_use":
-                tool_results = []
-                for block in resp.content:
-                    if block.type == "tool_use":
-                        result = _dispatch(block.name, block.input, service, body.actor_id)
-                        if block.name in ("ui_navigate_node", "ui_select_graph"):
-                            actions.append({"type": block.name[len("ui_"):], **block.input})
-                        tool_calls_log.append({
-                            "name": block.name,
-                            "input": block.input,
-                            "result": result,
-                        })
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result, default=str),
-                        })
-                session.append({"role": "user", "content": tool_results})
-                continue
+                # Append assistant turn (may contain text + tool_use blocks)
+                session.append({"role": "assistant", "content": resp.content})
 
-            # max_tokens: model ran out of output space mid-turn.
-            # Continue the loop — the session history is valid, the model
-            # just needs another turn to finish its reasoning or tool calls.
-            if resp.stop_reason == "max_tokens":
-                continue
+                if resp.stop_reason == "end_turn":
+                    # Extract the final text reply
+                    text = next(
+                        (b.text for b in resp.content if hasattr(b, "text")),
+                        "(no text response)",
+                    )
+                    return {"reply": text, "tool_calls": tool_calls_log, "actions": actions}
 
-            # Unexpected stop reason
-            break
+                if resp.stop_reason == "tool_use":
+                    tool_results = []
+                    for block in resp.content:
+                        if block.type == "tool_use":
+                            result = _dispatch(block.name, block.input, service, body.actor_id)
+                            if block.name in ("ui_navigate_node", "ui_select_graph"):
+                                actions.append({"type": block.name[len("ui_"):], **block.input})
+                            tool_calls_log.append({
+                                "name": block.name,
+                                "input": block.input,
+                                "result": result,
+                            })
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(result, default=str),
+                            })
+                    session.append({"role": "user", "content": tool_results})
+                    continue
+
+                # max_tokens: model ran out of output space mid-turn.
+                # Continue the loop — the session history is valid, the model
+                # just needs another turn to finish its reasoning or tool calls.
+                if resp.stop_reason == "max_tokens":
+                    continue
+
+                # Unexpected stop reason
+                break
+
+        except _anthropic.APITimeoutError as exc:
+            log.warning("Anthropic API timeout: %s", exc)
+            raise HTTPException(status_code=504, detail="Anthropic API request timed out. Please try again.")
+        except _anthropic.APIConnectionError as exc:
+            log.warning("Anthropic API connection error: %s", exc)
+            raise HTTPException(status_code=502, detail="Could not connect to Anthropic API. Check network connectivity.")
+        except _anthropic.RateLimitError as exc:
+            log.warning("Anthropic rate limit: %s", exc)
+            raise HTTPException(status_code=429, detail="Anthropic API rate limit exceeded. Please slow down.")
+        except _anthropic.APIStatusError as exc:
+            log.error("Anthropic API error %s: %s", exc.status_code, exc.message)
+            raise HTTPException(status_code=502, detail=f"Anthropic API error: {exc.message}")
 
         return {
             "reply": "Agent loop ended without a final response.",

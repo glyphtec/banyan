@@ -386,8 +386,21 @@ class BanyanService:
                     f"(from_graph_id={from_graph_id!r}, to_graph_id={to_graph_id!r})."
                 )
             lt = self.lookup.get_link_type(conn, link_type_id)
+            p = self.db.placeholder
+            # Same-direction duplicate check (all link types)
+            same_dir = conn.execute(
+                f"SELECT link_id FROM link WHERE "
+                f"CAST(from_node_id AS VARCHAR) = {p} AND "
+                f"CAST(to_node_id   AS VARCHAR) = {p} AND "
+                f"CAST(link_type_id AS VARCHAR) = {p} LIMIT 1",
+                [str(from_node_id), str(to_node_id), str(link_type_id)],
+            ).fetchone()
+            if same_dir:
+                raise ValueError(
+                    f"A link of this type already exists between "
+                    f"node '{from_node_id}' and node '{to_node_id}'."
+                )
             if lt and lt.get("is_symmetric"):
-                p = self.db.placeholder
                 reverse = conn.execute(
                     f"SELECT link_id FROM link WHERE "
                     f"CAST(from_node_id AS VARCHAR) = {p} AND "
@@ -995,7 +1008,7 @@ class BanyanService:
 
         counters = dict(nodes_added=0, nodes_updated=0, nodes_deleted=0,
                         links_created=0, links_updated=0, links_destroyed=0,
-                        ledger_entries=0)
+                        links_skipped=0, ledger_entries=0)
 
         default_nt_id: str | None = None
 
@@ -1109,16 +1122,35 @@ class BanyanService:
                             )
                         to_node_id = tn["node_id"]
 
-                    link_id = self.links.insert(
-                        conn,
-                        link_type_id=lt_id,
-                        from_graph_id=from_graph_id,
-                        to_graph_id=to_graph_id,
-                        from_node_id=from_node_id,
-                        to_node_id=to_node_id,
-                        actor_id=effective_actor,
-                        metadata=data.get("metadata"),
-                    )
+                    # Idempotent: skip if an identical link already exists
+                    _p = self.db.placeholder
+                    if conn.execute(
+                        f"SELECT 1 FROM link WHERE "
+                        f"CAST(from_node_id AS VARCHAR) = {_p} AND "
+                        f"CAST(to_node_id   AS VARCHAR) = {_p} AND "
+                        f"CAST(link_type_id AS VARCHAR) = {_p} LIMIT 1",
+                        [str(from_node_id), str(to_node_id), str(lt_id)],
+                    ).fetchone():
+                        counters["links_skipped"] += 1
+                        continue
+
+                    try:
+                        link_id = self.links.insert(
+                            conn,
+                            link_type_id=lt_id,
+                            from_graph_id=from_graph_id,
+                            to_graph_id=to_graph_id,
+                            from_node_id=from_node_id,
+                            to_node_id=to_node_id,
+                            actor_id=effective_actor,
+                            metadata=data.get("metadata"),
+                        )
+                    except Exception as _exc:
+                        _m = str(_exc).lower()
+                        if "unique" in _m or "constraint" in _m or "duplicate" in _m:
+                            counters["links_skipped"] += 1
+                            continue
+                        raise
                     link_data = self.links.get(conn, link_id)
                     cross = from_graph_id != to_graph_id
                     self.ledger.append(
@@ -1894,12 +1926,12 @@ class BanyanService:
                     else:
                         node_nd = net_depths.get(node_id, 0)
 
-                    # In LINK_NODE format, collect the link item even when the
+                    # In LINK_NODE/LINK format, collect the link item even when the
                     # destination is already seen — the frontier is not expanded
                     # (cycle guard still holds), but the caller can observe all
                     # links touching the frontier and deduplicate by link_id.
                     # In NODE format, only collect genuinely new nodes.
-                    if collect and (fmt == "LINK_NODE" or not already_seen):
+                    if collect and (fmt in ("LINK_NODE", "LINK") or not already_seen):
                         response_items.append(
                             _make_result_item(
                                 node,
@@ -1965,4 +1997,6 @@ def _make_result_item(
     }
     if fmt == "NODE":
         return {**base, **node}
+    if fmt == "LINK":
+        return {**base, "link": link}
     return {**base, "link": link, "node": node}

@@ -755,6 +755,11 @@ def build_rest_router(service: BanyanService) -> APIRouter:
             return service.execute_batch(batch_dict, actor_id=actor_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "unique" in msg or "constraint" in msg or "duplicate" in msg:
+                raise HTTPException(status_code=409, detail=str(exc))
+            raise
 
     # -- Stakeholder registry --------------------------------------------------
 
