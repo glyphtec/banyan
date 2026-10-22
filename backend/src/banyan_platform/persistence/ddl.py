@@ -39,11 +39,9 @@ CREATE TABLE IF NOT EXISTS link_type (
     inserted_datetime   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_datetime    TIMESTAMPTZ,
     updated_by          VARCHAR(200),
+    is_symmetric        BOOLEAN DEFAULT FALSE,
     CONSTRAINT uq_link_type_name UNIQUE (name)
 );
-
--- Add is_symmetric column if not present (idempotent migration).
-ALTER TABLE link_type ADD COLUMN IF NOT EXISTS is_symmetric BOOLEAN DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS graph_topology (
     topology_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -132,6 +130,7 @@ CREATE TABLE IF NOT EXISTS link (
 
 CREATE INDEX IF NOT EXISTS idx_link_traversal   ON link(from_graph_id, from_node_id, to_node_id);
 CREATE INDEX IF NOT EXISTS idx_link_cross_graph ON link(to_node_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_link_endpoints ON link(from_node_id, to_node_id, link_type_id);
 
 -- ============================================================================
 -- PART 3: AUDIT LEDGER & SNAPSHOTS
@@ -424,6 +423,24 @@ def _has_real_sql(stmt: str) -> bool:
     )
 
 
+def _apply_migrations(conn) -> None:
+    """One-time ALTER TABLE migrations guarded by schema inspection.
+
+    Each migration checks whether the change is needed before executing,
+    so it never writes a no-op statement to the DuckDB WAL (avoids the
+    1.5.x WAL-replay assertion failure on subsequent startups).
+    """
+    cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'main' AND table_name = 'link_type'"
+        ).fetchall()
+    }
+    if "is_symmetric" not in cols:
+        conn.execute("ALTER TABLE link_type ADD COLUMN is_symmetric BOOLEAN DEFAULT FALSE")
+
+
 def bootstrap(db) -> None:
     """
     Run BANYAN_DDL then BANYAN_SEED_DML against *db*.
@@ -440,6 +457,7 @@ def bootstrap(db) -> None:
     with db.connect() as conn:
         for stmt in _split_statements(BANYAN_DDL):
             conn.execute(stmt)
+        _apply_migrations(conn)
 
     with db.connect() as conn:
         for stmt in _split_statements(BANYAN_SEED_DML):

@@ -117,4 +117,17 @@ def build_admin_router(db: Database, service: "BanyanService") -> APIRouter:
                 pass  # already gone (race); skip
         return {"purged": len(summaries), "details": summaries}
 
+    # ── Checkpoint ───────────────────────────────────────────────────────────
+
+    @router.post("/checkpoint")
+    def run_checkpoint():
+        """Force a DuckDB WAL checkpoint — merges all committed data into the .duckdb file."""
+        if not hasattr(db, "checkpoint"):
+            raise HTTPException(
+                status_code=400,
+                detail="Checkpoint is only supported for the DuckDB backend.",
+            )
+        db.checkpoint()
+        return {"status": "ok", "message": "WAL checkpointed successfully."}
+
     return router

@@ -41,14 +41,37 @@ class DuckDBDatabase(Database):
         self._path = config.duckdb_path
         self._conn = None
         self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
         # Ensure the connection is closed cleanly on process exit (including
         # Ctrl+C / KeyboardInterrupt).  Without this, DuckDB leaves the WAL
         # file uncheckpointed, causing "Failure while replaying WAL file" on
         # the next startup.
         atexit.register(self._close)
+        # Periodically checkpoint the WAL so committed work is always merged
+        # into the main .duckdb file, even if the process is killed hard.
+        self._schedule_checkpoint(interval=300)
+
+    def checkpoint(self) -> None:
+        """Force a WAL checkpoint, merging all committed data into the main .duckdb file."""
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.execute("CHECKPOINT")
+                except Exception:
+                    pass
+
+    def _schedule_checkpoint(self, interval: int) -> None:
+        """Checkpoint the WAL then reschedule for the next interval."""
+        self.checkpoint()
+        self._timer = threading.Timer(interval, self._schedule_checkpoint, args=(interval,))
+        self._timer.daemon = True
+        self._timer.start()
 
     def _close(self) -> None:
-        """Close the DuckDB connection and checkpoint the WAL."""
+        """Cancel the periodic checkpoint timer, then close the connection (triggers a final checkpoint)."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         with self._lock:
             if self._conn is not None:
                 try:

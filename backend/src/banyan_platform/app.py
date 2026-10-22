@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -23,10 +25,20 @@ def create_app(config: DatabaseConfig | None = None) -> FastAPI:
     mcp_server = build_mcp_server(service)
     mcp_app = mcp_server.http_app(path="/")
 
+    # Wrap the MCP lifespan so we can checkpoint + close the DB on every clean
+    # shutdown (Ctrl+C, SIGTERM, etc.) — in addition to the atexit handler.
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        async with mcp_app.lifespan(app):
+            try:
+                yield
+            finally:
+                db._close()
+
     app = FastAPI(
         title="Banyan Platform",
         version="0.1.0",
-        lifespan=mcp_app.lifespan,
+        lifespan=_lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
