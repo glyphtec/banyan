@@ -41,7 +41,7 @@ def test_export_structure(service):
     assert doc["banyan_export_version"] == "1.1"
     assert "exported_at" in doc
     assert doc["graph"]["graph_id"] == g["graph_id"]
-    assert len(doc["nodes"]) == 2   # PARENT-01 + CHILD-01 ($ROOT$ excluded from export)
+    assert len(doc["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01 ($ROOT$ is included in export)
     assert len(doc["links"]) == 1
     assert doc["cross_graph_links"] == []
 
@@ -137,7 +137,7 @@ def test_snapshot_stores_payload(service):
     assert snap["snapshot_id"]
     payload = snap["snapshot_payload"]
     assert payload.get("banyan_export_version") == "1.1"
-    assert len(payload["nodes"]) == 2   # PARENT-01 + CHILD-01 ($ROOT$ excluded from export)
+    assert len(payload["nodes"]) == 3   # $ROOT$ + PARENT-01 + CHILD-01 ($ROOT$ is included in export)
     assert len(payload["links"]) == 1
 
 
@@ -453,7 +453,7 @@ def test_rest_export(client):
     assert r2.status_code == 200
     doc = r2.json()
     assert doc["banyan_export_version"] == "1.1"
-    assert len(doc["nodes"]) == 1  # N1 ($ROOT$ excluded from export)
+    assert len(doc["nodes"]) == 2  # $ROOT$ + N1 ($ROOT$ is included in export)
 
 
 def test_rest_import(client):
