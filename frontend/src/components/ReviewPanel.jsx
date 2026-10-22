@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { bqlQuery, exportGraph, executeBatch, updateLink } from '../api'
 
 // Strip _PROPOSED suffix to get the convention-derived confirmed type name.
@@ -21,7 +21,10 @@ function buildPath(nodeId, nodeName, childToParent, ancestorNames) {
   return path.join(' \u203a ')
 }
 
-export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNavigate, onReveal, onMutated }) {
+export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNavigate, onReveal, onMutated, activeNode }) {
+  // Pin onMutated in a ref so callbacks never close over a stale version.
+  const onMutatedRef = useRef(onMutated)
+  useEffect(() => { onMutatedRef.current = onMutated }, [onMutated])
   const visibleGraphs  = graphs.filter(g => g.name !== '__system__')
   const proposedTypes  = relatedTypes.filter(lt => lt.name.endsWith('_PROPOSED'))
   const confirmedTypes = relatedTypes.filter(lt => !lt.name.endsWith('_PROPOSED'))
@@ -31,6 +34,8 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
   const [filterTypeId,  setFilterTypeId]  = useState('')
   const [approveTypeId, setApproveTypeId] = useState('')
   const [deleteProposed, setDeleteProposed] = useState(true)
+  const [statusFilter,   setStatusFilter]   = useState('pending')  // 'all' | 'pending' | 'deferred'
+  const [mineOnly,       setMineOnly]       = useState(false)
 
   // Initialise graph selection once graphs arrive
   useEffect(() => {
@@ -141,40 +146,68 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
   useEffect(() => { fetchQueue() }, [fetchQueue])
 
   // ── Row action state ───────────────────────────────────────────────────────
-  const [processingIds, setProcessingIds] = useState(new Set())
-  const [rowErrors,     setRowErrors]     = useState({})   // link_id → msg
-  const [passingId,     setPassingId]     = useState(null) // link_id with open pass form
-  const [passNote,      setPassNote]      = useState('')
+  const [processingIds,   setProcessingIds]   = useState(new Set())
+  const [rowErrors,       setRowErrors]       = useState({})   // link_id → msg
+  const [deferringId,     setDeferringId]     = useState(null) // link_id with open defer form
+  const [deferNote,       setDeferNote]       = useState('')
+  const [altArmedId,      setAltArmedId]      = useState(null) // link_id armed for Alternative
+  const [altConflict,     setAltConflict]     = useState(false)
+  const [altChecking,     setAltChecking]     = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null) // link_id with open delete confirm
+
+  // ── Alternative: live conflict check whenever activeNode changes while armed ──
+  useEffect(() => {
+    if (!altArmedId) { setAltConflict(false); return }
+    const armedItem = queueItems.find(i => i.link.link_id === altArmedId)
+    if (!armedItem || !activeNode) { setAltConflict(false); return }
+    // Not a useful alternative if activeNode is the current proposed target
+    if (activeNode.node_id === armedItem.toNode.node_id) { setAltConflict(false); return }
+    const approveTypeName = relatedTypes.find(lt => lt.link_type_id === approveTypeId)?.name
+    if (!approveTypeName) return
+    setAltChecking(true)
+    bqlQuery({
+      graph:    { id: armedItem.fromNode.graph_id },
+      starting: { node_id: armedItem.fromNode.node_id },
+      steps: [{ direction: 'FROM', link_types: [approveTypeName], depth: 1, graphs: ['*'], collect: true }],
+      result:   { format: 'LINK_NODE', include_seed: false },
+    })
+      .then(res => {
+        const exists = (res.results ?? []).some(r => r.node?.node_id === activeNode.node_id)
+        setAltConflict(exists)
+      })
+      .catch(() => setAltConflict(false))
+      .finally(() => setAltChecking(false))
+  }, [altArmedId, activeNode, approveTypeId, relatedTypes, queueItems])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const markProcessing = (id, on) =>
     setProcessingIds(prev => { const s = new Set(prev); on ? s.add(id) : s.delete(id); return s })
 
-  const handleApprove = useCallback(async (item) => {
+  const handleApprove = useCallback(async (item, overrideToNode = null) => {
     if (!approveTypeId) return
     const { link, fromNode, toNode } = item
+    const target = overrideToNode ?? toNode
     markProcessing(link.link_id, true)
     setRowErrors(prev => { const n = { ...prev }; delete n[link.link_id]; return n })
     try {
       const linkOps = []
-      if (deleteProposed)
+      if (deleteProposed || overrideToNode)
         linkOps.push({ verb: 'DESTROY_LINK', data: { link_id: link.link_id } })
       linkOps.push({
         verb: 'CREATE_LINK',
         data: {
           from_node_id: fromNode.node_id,
-          to_node_id:   toNode.node_id,
-          to_graph_id:  toNode.graph_id,
+          to_node_id:   target.node_id,
+          to_graph_id:  target.graph_id,
           link_type_id: approveTypeId,
           metadata: {
             link_provenance: 'asserted',
             approved_by:     actorHandle,
+            ...(overrideToNode ? { alternative_correction: true } : {}),
             ...(link.metadata?.agent_rationale    ? { agent_rationale:    link.metadata.agent_rationale }    : {}),
             ...(link.metadata?.confidence_level   ? { confidence_level:   link.metadata.confidence_level }   : {}),
             ...(link.metadata?.confidence_basis   ? { confidence_basis:   link.metadata.confidence_basis }   : {}),
             ...(link.metadata?.caveats            ? { caveats:            link.metadata.caveats }            : {}),
           },
-          // from_graph_id may differ from reviewGraphId for cross-graph links
-          // (e.g. reviewing OE but the from-node lives in SNOMED SR).
           from_graph_id: fromNode.graph_id,
         },
       })
@@ -183,7 +216,8 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
         actorHandle,
       )
       setQueueItems(prev => prev.filter(i => i.link.link_id !== link.link_id))
-      onMutated?.()
+      setAltArmedId(null)
+      onMutatedRef.current?.()
     } catch (e) {
       setRowErrors(prev => ({ ...prev, [link.link_id]: e.message }))
     } finally {
@@ -191,13 +225,13 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
     }
   }, [approveTypeId, deleteProposed, reviewGraphId, actorHandle])
 
-  const handlePass = useCallback(async (item) => {
+  const handleDefer = useCallback(async (item) => {
     const { link } = item
     markProcessing(link.link_id, true)
     try {
       const newMeta = {
         ...link.metadata,
-        reviewer_note:  passNote.trim() || undefined,
+        reviewer_note:  deferNote.trim() || undefined,
         review_status:  'deferred',
         reviewed_by:    actorHandle,
       }
@@ -207,18 +241,45 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
           ? { ...i, link: { ...i.link, metadata: newMeta } }
           : i,
       ))
-      setPassingId(null)
-      setPassNote('')
-      onMutated?.()
+      setDeferringId(null)
+      setDeferNote('')
+      onMutatedRef.current?.()
     } catch (e) {
       setRowErrors(prev => ({ ...prev, [link.link_id]: e.message }))
     } finally {
       markProcessing(link.link_id, false)
     }
-  }, [passNote, actorHandle])
+  }, [deferNote, actorHandle])
+
+  const handleDelete = useCallback(async (item) => {
+    const { link } = item
+    markProcessing(link.link_id, true)
+    setRowErrors(prev => { const n = { ...prev }; delete n[link.link_id]; return n })
+    try {
+      await executeBatch(
+        { graph_id: reviewGraphId, actor_id: actorHandle, link_operations: [{ verb: 'DESTROY_LINK', data: { link_id: link.link_id } }] },
+        actorHandle,
+      )
+      setQueueItems(prev => prev.filter(i => i.link.link_id !== link.link_id))
+      setDeleteConfirmId(null)
+      onMutatedRef.current?.()
+    } catch (e) {
+      setRowErrors(prev => ({ ...prev, [link.link_id]: e.message }))
+    } finally {
+      markProcessing(link.link_id, false)
+    }
+  }, [reviewGraphId, actorHandle])
 
   const filterType  = relatedTypes.find(lt => lt.link_type_id === filterTypeId)
   const approveType = relatedTypes.find(lt => lt.link_type_id === approveTypeId)
+
+  const filteredItems = queueItems.filter(item => {
+    const rs = item.link.metadata?.review_status
+    if (statusFilter === 'pending'  && rs)               return false
+    if (statusFilter === 'deferred' && rs !== 'deferred') return false
+    if (mineOnly && item.link.metadata?.reviewed_by !== actorHandle) return false
+    return true
+  })
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -259,6 +320,22 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
           </label>
           <button className="review-refresh-btn" onClick={fetchQueue} title="Refresh queue">↺</button>
         </div>
+        <div className="review-toolbar-row">
+          <span className="review-label">Status</span>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="deferred">Deferred</option>
+          </select>
+          <label className="review-checkbox-label">
+            <input
+              type="checkbox"
+              checked={mineOnly}
+              onChange={e => setMineOnly(e.target.checked)}
+            />
+            reviewed by me
+          </label>
+        </div>
       </div>
 
       {/* ── Count bar ───────────────────────────────────────────────────── */}
@@ -267,27 +344,40 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
           ? 'Loading…'
           : fetchError
             ? <span style={{ color: '#e05c5c' }}>{fetchError}</span>
-            : `${queueItems.length} pending`
+            : filteredItems.length === queueItems.length
+              ? `${queueItems.length} items`
+              : `${filteredItems.length} of ${queueItems.length} items`
         }
       </div>
 
       {/* ── Queue ───────────────────────────────────────────────────────── */}
       <div className="review-queue">
-        {!loading && !fetchError && queueItems.length === 0 && (
+        {!loading && !fetchError && filteredItems.length === 0 && (
           <div className="review-empty">
-            No pending {filterType?.name ?? ''} links
+            {queueItems.length === 0
+              ? `No pending ${filterType?.name ?? ''} links`
+              : 'No items match the current filter'}
           </div>
         )}
 
-        {queueItems.map(item => {
+        {filteredItems.map(item => {
           const { link, fromNode, toNode, toPath, toGraphName } = item
-          const isProcessing = processingIds.has(link.link_id)
-          const rowError     = rowErrors[link.link_id]
-          const isPassing    = passingId === link.link_id
-          const isDeferred   = link.metadata?.review_status === 'deferred'
+          const isProcessing       = processingIds.has(link.link_id)
+          const rowError           = rowErrors[link.link_id]
+          const isDeferring        = deferringId === link.link_id
+          const isAlternativeArmed = altArmedId  === link.link_id
+          const isDeleteConfirm    = deleteConfirmId === link.link_id
+          const isDeferred         = link.metadata?.review_status === 'deferred'
+
+          // Alternative: is the current activeNode a valid (different) target?
+          const altTarget     = isAlternativeArmed && activeNode && activeNode.node_id !== toNode.node_id ? activeNode : null
+          const altTargetName = altTarget?.name ?? null
+
+          // Disarm helpers — close all row modes
+          const closeAll = () => { setDeferringId(null); setDeferNote(''); setAltArmedId(null); setDeleteConfirmId(null) }
 
           return (
-            <div key={link.link_id} className={`review-row${isDeferred ? ' review-row-deferred' : ''}`}>
+            <div key={link.link_id} className={`review-row${isDeferred ? ' review-row-deferred' : ''}${isAlternativeArmed ? ' review-row-armed' : ''}`}>
 
               {/* From → To */}
               <div className="review-row-nodes">
@@ -352,8 +442,8 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
                 <div style={{ fontSize: 11, color: '#e05c5c' }}>{rowError}</div>
               )}
 
-              {/* Action buttons */}
-              {!isPassing && (
+              {/* Action buttons — hidden when any row mode is open */}
+              {!isDeferring && !isAlternativeArmed && !isDeleteConfirm && (
                 <div className="review-row-actions">
                   <button
                     className="review-approve-btn"
@@ -363,38 +453,90 @@ export function ReviewPanel({ graphs, relatedTypes, graphMap, actorHandle, onNav
                     {isProcessing ? '…' : `✓ ${approveType?.name ?? 'Approve'}`}
                   </button>
                   <button
-                    className="review-pass-btn"
+                    className="review-alt-btn"
                     disabled={isProcessing}
-                    onClick={() => { setPassingId(link.link_id); setPassNote('') }}
+                    onClick={() => { closeAll(); setAltArmedId(link.link_id) }}
+                    title="Approve with a different target node"
                   >
-                    ⊘ Pass
+                    ⇄ Alt
+                  </button>
+                  <button
+                    className="review-defer-btn"
+                    disabled={isProcessing}
+                    onClick={() => { closeAll(); setDeferringId(link.link_id); setDeferNote('') }}
+                    title="Add comments and flag link as deferred for future consideration"
+                  >
+                    ⊘ Defer
+                  </button>
+                  <button
+                    className="review-delete-btn"
+                    disabled={isProcessing}
+                    onClick={() => { closeAll(); setDeleteConfirmId(link.link_id) }}
+                    title="Delete this proposal permanently"
+                  >
+                    ✕ Delete
                   </button>
                 </div>
               )}
 
-              {/* Pass / defer form */}
-              {isPassing && (
+              {/* Defer form */}
+              {isDeferring && (
                 <div className="review-pass-form">
                   <input
                     autoFocus
                     type="text"
                     placeholder="Note (optional) — Enter to save, Esc to cancel"
-                    value={passNote}
-                    onChange={e => setPassNote(e.target.value)}
+                    value={deferNote}
+                    onChange={e => setDeferNote(e.target.value)}
                     onKeyDown={e => {
-                      if (e.key === 'Enter')  handlePass(item)
-                      if (e.key === 'Escape') { setPassingId(null); setPassNote('') }
+                      if (e.key === 'Enter')  handleDefer(item)
+                      if (e.key === 'Escape') closeAll()
                     }}
                   />
-                  <button className="review-approve-btn" onClick={() => handlePass(item)}>
-                    Save
-                  </button>
+                  <button className="review-approve-btn" onClick={() => handleDefer(item)}>Save</button>
+                  <button className="review-pass-btn" onClick={closeAll}>Cancel</button>
+                </div>
+              )}
+
+              {/* Alternative armed form */}
+              {isAlternativeArmed && (
+                <div className="review-alt-form">
+                  {!altTarget ? (
+                    <div className="review-alt-hint">← Select the correct target node in the tree</div>
+                  ) : (
+                    <div className="review-alt-preview">
+                      <span>{fromNode.name}</span>
+                      <span className="review-arrow"> → </span>
+                      <strong>{altTargetName}</strong>
+                      {altChecking && <span className="review-alt-checking"> checking…</span>}
+                      {!altChecking && altConflict && <span className="review-alt-conflict"> — link already exists</span>}
+                    </div>
+                  )}
+                  <div className="review-alt-actions">
+                    <button
+                      className="review-approve-btn"
+                      disabled={isProcessing || !altTarget || altConflict || altChecking}
+                      onClick={() => handleApprove(item, altTarget)}
+                    >
+                      {isProcessing ? '…' : '✓ Confirm'}
+                    </button>
+                    <button className="review-pass-btn" onClick={closeAll}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Delete confirm */}
+              {isDeleteConfirm && (
+                <div className="review-pass-form">
+                  <span style={{ fontSize: 12, color: '#c05050' }}>Delete this proposal?</span>
                   <button
-                    className="review-pass-btn"
-                    onClick={() => { setPassingId(null); setPassNote('') }}
+                    className="review-delete-btn"
+                    disabled={isProcessing}
+                    onClick={() => handleDelete(item)}
                   >
-                    Cancel
+                    {isProcessing ? '…' : 'Yes, delete'}
                   </button>
+                  <button className="review-pass-btn" onClick={closeAll}>Cancel</button>
                 </div>
               )}
             </div>

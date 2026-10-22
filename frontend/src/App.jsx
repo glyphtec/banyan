@@ -32,6 +32,9 @@ export function App() {
   const draggingRightPanel   = useRef(false)
   const pendingNodeIdRef    = useRef(null)
   const pendingRevealIdRef  = useRef(null)
+  // Tracks the most-recently-requested graph ID so async export callbacks
+  // can detect they are stale (the user navigated away before they resolved).
+  const selectedGraphIdRef  = useRef(null)
   // Stable session ID for the agent (survives re-renders, reset on page reload)
   const sessionId = useRef(Math.random().toString(36).slice(2)).current
 
@@ -105,12 +108,15 @@ export function App() {
   // Load graph when selection changes
   useEffect(() => {
     if (!selectedGraphId) return
+    selectedGraphIdRef.current = selectedGraphId   // keep ref in sync
+    const gid = selectedGraphId
     setLoadingGraph(true)
     setExportData(null)
     setActiveNode(null)
     setStatus({ text: 'Loading graph…', error: false })
-    exportGraph(selectedGraphId)
+    exportGraph(gid)
       .then(data => {
+        if (selectedGraphIdRef.current !== gid) return  // navigated away — discard
         setExportData(data)
         const crossCount = data.cross_graph_links?.length ?? 0
         setStatus({
@@ -127,8 +133,8 @@ export function App() {
           pendingNodeIdRef.current = null
         }
       })
-      .catch(err => setStatus({ text: err.message, error: true }))
-      .finally(() => setLoadingGraph(false))
+      .catch(err => { if (selectedGraphIdRef.current === gid) setStatus({ text: err.message, error: true }) })
+      .finally(() => { if (selectedGraphIdRef.current === gid) setLoadingGraph(false) })
   }, [selectedGraphId])
 
   const hierarchicalIds = useMemo(() => buildHierarchicalFamily(linkTypes), [linkTypes])
@@ -229,8 +235,10 @@ export function App() {
   // Re-fetch the currently loaded graph export after a mutation (e.g. link approve/pass).
   const refreshGraph = useCallback(() => {
     if (!selectedGraphId) return
-    exportGraph(selectedGraphId)
+    const gid = selectedGraphId
+    exportGraph(gid)
       .then(data => {
+        if (selectedGraphIdRef.current !== gid) return  // navigated away — discard stale result
         setExportData(data)
         const crossCount = data.cross_graph_links?.length ?? 0
         setStatus({
@@ -418,6 +426,7 @@ export function App() {
                   relatedTypes={relatedTypes}
                   graphMap={graphMap}
                   actorHandle={actorHandle}
+                  activeNode={activeNode}
                   onNavigate={navigateToNode}
                   onReveal={revealInTree}
                   onMutated={refreshGraph}
